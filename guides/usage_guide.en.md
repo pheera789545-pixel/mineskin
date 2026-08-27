@@ -180,6 +180,41 @@ The **Grid** button in the toolbar (Editor mode) overlays pixel guides on the mo
 
 ---
 
+## Posing
+
+The **Pose Limbs** button in the toolbar — or the `O` key — bends the model into a pose by hand. Two tools share the panel:
+
+- **Move** — slides a limb's free end along one axis. Three arrows mark the axes.
+- **Twist** — turns a limb around one axis. Three rings mark the axes.
+
+Nothing is dragged freehand. Whichever arrow or ring your drag starts nearest is the one it follows, so the same gesture means the same thing from every camera angle.
+
+### Mouse and Touch
+
+- **Mouse** — drag any limb directly. Hovering lights up the arrow or ring the drag will use.
+- **Touch** — tap a limb's handle first to bring up its arrows or rings, then drag one. A plain drag on the model still orbits the camera.
+- Press `Esc`, or click empty space, to put the gizmo away.
+- Press `O` again to leave pose mode. In the editor a brush shortcut (`P`, `U`, `V`, `D`, `E`) or the eyedropper (`I`) leaves it too, straight into that tool.
+
+### The Torso
+
+The torso has no joint of its own, so its handle drives the whole model instead: the arrows slide the skin through the scene, and the ring turns it on the spot. Both write the same values as the move and turn sliders in Settings, so the handle and the sliders always agree.
+
+The built environments stand the model on their own ground and ignore the move offsets, so the torso's arrows go away there. Turning the model still works.
+
+### Resetting
+
+- **Reset Pose** clears the limbs.
+- **Reset Position** puts the whole-model move and turn back to default.
+
+They reset separately, so clearing a pose won't undo positioning you dialled in outside pose mode.
+
+### Posing and Animations
+
+The two are mutually exclusive: starting an animation switches posing off, and switching posing on stops the animation. Your pose is saved with the skin and comes back when you reload.
+
+---
+
 ## Animations
 
 In Preview mode, the **Animations** button plays the model through a loop:
@@ -285,6 +320,7 @@ Open the **Settings** panel with the gear icon in the toolbar. It has three tabs
 - `I` — Eye dropper
 - `M` — Toggle symmetry
 - `R` — Toggle the reference panel
+- `O` — Toggle pose mode
 
 ### History
 

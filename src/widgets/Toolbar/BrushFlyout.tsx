@@ -417,8 +417,9 @@ const BrushPanel: React.FC<{
  */
 const MobileBrushPanel: React.FC<{
   expanded: boolean;
+  slotActive: boolean;
   getUniqueColors?: () => string[];
-}> = ({ expanded, getUniqueColors }) => {
+}> = ({ expanded, slotActive, getUniqueColors }) => {
   const { dictionary: dict } = useDictionary();
   const paintMode = useRendererStore((s) => s.paintMode);
   const paintColor = useRendererStore((s) => s.paintColor);
@@ -501,7 +502,7 @@ const MobileBrushPanel: React.FC<{
         }}
       >
         {DRAWER_TOOLS.map(({ id, icon: Icon, labelKey }) => {
-          const isActive = tool === id;
+          const isActive = slotActive && tool === id;
           const fullRow = expanded && id === "eraser";
           return (
             <button
@@ -731,6 +732,7 @@ const BrushFlyout: React.FC<BrushFlyoutProps> = ({
   const { dictionary: dict } = useDictionary();
   const paintMode = useRendererStore((s) => s.paintMode);
   const colorPickerActive = useRendererStore((s) => s.colorPickerActive);
+  const poseMode = useRendererStore((s) => s.poseMode);
   const setValue = useRendererStore((s) => s.setValue);
   const isTouch = useIsTouch();
   const [open, setOpen] = useState(false);
@@ -757,7 +759,10 @@ const BrushFlyout: React.FC<BrushFlyoutProps> = ({
     setSnap(next ? SNAP_EXPANDED : snapFolded);
 
   const isSlotMode = SLOT_TOOLS.some((b) => b.mode === paintMode);
-  const slotActive = isSlotMode && !colorPickerActive;
+  // Posing is a tool in the same slot sense as the brushes: while it's armed
+  // the brush isn't, so the rail shows it disarmed even though paintMode still
+  // remembers which brush to come back to.
+  const slotActive = isSlotMode && !colorPickerActive && !poseMode;
   const current = SLOT_TOOLS.find((b) => b.mode === paintMode) ?? SLOT_TOOLS[0];
   const CurrentIcon = current.icon;
 
@@ -913,6 +918,7 @@ const BrushFlyout: React.FC<BrushFlyoutProps> = ({
             </div>
             <MobileBrushPanel
               expanded={expanded}
+              slotActive={slotActive}
               getUniqueColors={getUniqueColors}
             />
           </div>

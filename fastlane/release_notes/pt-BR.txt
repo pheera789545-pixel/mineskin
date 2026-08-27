@@ -1,1 +1,6 @@
-Correções de bugs e melhorias de estabilidade.
+Novidade: poses.
+
+- Arraste um membro para levar a ponta dele ao lugar, ou torça o membro em um eixo.
+- Arraste o tronco para mover ou virar a skin inteira.
+- Redefina a pose e a posição da skin quando quiser, separadamente.
+- Correções de bugs e pequenas melhorias.

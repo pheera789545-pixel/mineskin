@@ -1,1 +1,6 @@
-Bug fixes and stability improvements.
+New: posing.
+
+- Drag a limb to swing it into place, or twist it around any of its axes.
+- Drag the torso to move or turn the whole skin.
+- Reset the pose and the position separately, whenever you like.
+- Bug fixes and small improvements.

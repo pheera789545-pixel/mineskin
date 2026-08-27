@@ -15,6 +15,7 @@ import type { MiSkiRenderer } from "./MiSkiRenderer";
 import { isModelMoveLocked } from "./modelTransform";
 import {
   getPartRestOffset,
+  getPartTwistCenterOffset,
   getPosePivot,
   POSE_LIMBS,
   POSE_PARTS,
@@ -22,7 +23,7 @@ import {
   PosePart,
   resolvePosePartMesh,
 } from "./PoseSystem";
-import { rotateV3ByQuat } from "./quaternion";
+import { Quat, rotateV3ByQuat } from "./quaternion";
 
 /**
  * Handle radius in CSS pixels. Constant on screen rather than in world units,
@@ -98,6 +99,27 @@ export const AXIS_GRAB_SLOP_PX = { mouse: 7, touch: 14 };
 export const POSE_AXES = [0, 1, 2] as const;
 export type PoseAxis = (typeof POSE_AXES)[number];
 
+/**
+ * Which rings a part gets, named in the part's *own* axes.
+ *
+ * An arm or a leg gets one: the roll along its own length, which turns a palm
+ * outwards or squares a foot to the ground. It is the only turn the move tool
+ * cannot reach — the arrows aim a limb by its free end, and this is the
+ * rotation that end sits on and so never feels.
+ *
+ * The head gets that same turn, its yaw, and a nod besides. The arrows can
+ * tilt the crown into a nod already, but only as a side effect of aiming it
+ * somewhere; a ring is the way to nod by an angle rather than by a destination,
+ * and a head is looked at closely enough to be worth aiming that precisely.
+ */
+const LIMB_TWIST_AXES: Record<PoseLimb, PoseAxis[]> = {
+  head: [0, 1],
+  leftArm: [1],
+  rightArm: [1],
+  leftLeg: [1],
+  rightLeg: [1],
+};
+
 const AXIS_COLORS: Record<PoseAxis, [number, number, number]> = {
   0: [0.95, 0.35, 0.38],
   1: [0.42, 0.82, 0.4],
@@ -107,11 +129,11 @@ const AXIS_COLORS: Record<PoseAxis, [number, number, number]> = {
 /**
  * What both gizmos have in common: one named axis, and where it acts.
  *
- * Posing goes through these handles and nothing else. A drag on a limb itself
- * would have to guess which of the infinitely many 3D motions a flat pointer
- * movement meant, and its guess changes with the camera; naming the axis first
- * removes the guess, so the pointer only ever decides *how far* along — or how
- * far around — a direction the user already picked.
+ * A handle names its direction before the drag starts, so the pointer only ever
+ * decides *how far* along — or how far around — a direction the user already
+ * picked, and the same gesture means the same thing from every camera angle.
+ * Dragging the part itself is the same thing said quickly: the press is read as
+ * a choice of whichever handle it fell nearest, so it too is exact.
  *
  * The axis is carried in the space the drag is solved in: the joint's parent
  * for a limb, and the scene's own axes for the model handle, because that is
@@ -155,10 +177,21 @@ export type PoseMoveHandle = PoseAxisHandleBase & {
  */
 export type PoseTwistHandle = PoseAxisHandleBase & {
   kind: "twist";
+  /**
+   * Centre of the drawn circle, in the space the drag is solved in — the point
+   * a sweep is measured around, which is not the pivot the part turns about.
+   */
+  centerLocal: V3;
   /** Ring vertices in the space the gizmo draws in, as a closed loop. */
   ring: V3[];
   /** The same vertices in canvas device pixels; null where behind the camera. */
   screenRing: ({ x: number; y: number } | null)[];
+  /**
+   * Index into those of the vertex nearest the camera — which half of a ring
+   * flattened to a sliver is the near one, and so which way it should turn
+   * under a drag that has not picked a half for itself.
+   */
+  nearIndex: number;
 };
 
 export type PoseAxisHandle = PoseMoveHandle | PoseTwistHandle;
@@ -292,6 +325,17 @@ export function getPoseSpace(mesh: MinecraftPart): MeshGroup | null {
   return mesh.getParent();
 }
 
+/**
+ * The model's centre of mass in scene space — outside the model's own
+ * transform, which is the space a whole-model drag is solved in.
+ */
+export function computeModelCenterInScene(renderer: MiSkiRenderer): V3 | null {
+  const view = getGizmoView(renderer);
+  if (!view) return null;
+  const center = computeModelCenter(view);
+  return center ? multiplyM4V3(view.global, center) : null;
+}
+
 /** Projects a point, returning its pixel position and the world-per-pixel scale there. */
 function projectPoint(
   view: GizmoView,
@@ -370,14 +414,16 @@ export function computePoseHandles(renderer: MiSkiRenderer): PoseHandle[] {
 
 /**
  * The gizmo for one part, in whichever form the active tool takes: three arrows
- * for **move**, three rings for **twist**. One or the other is the whole of
- * posing — nothing happens from dragging a limb itself.
+ * for **move**, rings for **twist**. These are the only things a drag ever
+ * moves — a press on the part itself is handed to the nearest of them.
  *
- * Both sets are built on the *parent's* axes rather than the part's own, so a
- * handle means the same thing however the part has already been rotated: X
+ * The arrows are built on the *parent's* axes rather than the part's own, so an
+ * arrow means the same thing however the part has already been rotated: X
  * always runs across the model, Y always up it, Z always out of its chest. A
  * part-local set would rotate as the part moved, and the direction a user aimed
- * at would stop matching the direction they get.
+ * at would stop matching the direction they get. The rings go the other way and
+ * ride the part, because what they name is a turn *of* the part rather than a
+ * direction in the scene.
  */
 export function computeAxisHandles(
   renderer: MiSkiRenderer,
@@ -411,6 +457,10 @@ type LimbFrame = {
   jointLocal: V3;
   tipLocal: V3;
   restOffset: V3;
+  /** Where the twist rings go, in the same space, already carried by the pose. */
+  twistCenterLocal: V3;
+  /** How the part is turned right now; the rings' own axes are read off it. */
+  rotation: Quat;
   /** The joint's parent matrix: the bridge between those two spaces. */
   parentMatrix: M44;
   joint: V3;
@@ -430,14 +480,21 @@ function computeLimbFrame(
 
   const jointLocal = getPosePivot(mesh);
   const restOffset = getPartRestOffset(mesh, part);
-  const posedOffset = rotateV3ByQuat(
-    renderer.poseSystem.getPartRotation(part),
-    restOffset,
-  );
+  const rotation = renderer.poseSystem.getPartRotation(part);
+  const posedOffset = rotateV3ByQuat(rotation, restOffset);
   const tipLocal: V3 = [
     jointLocal[0] + posedOffset[0],
     jointLocal[1] + posedOffset[1],
     jointLocal[2] + posedOffset[2],
+  ];
+  const centerOffset = rotateV3ByQuat(
+    rotation,
+    getPartTwistCenterOffset(mesh, part),
+  );
+  const twistCenterLocal: V3 = [
+    jointLocal[0] + centerOffset[0],
+    jointLocal[1] + centerOffset[1],
+    jointLocal[2] + centerOffset[2],
   ];
 
   return {
@@ -445,6 +502,8 @@ function computeLimbFrame(
     jointLocal,
     tipLocal,
     restOffset,
+    twistCenterLocal,
+    rotation,
     parentMatrix,
     joint: multiplyM4V3(parentMatrix, jointLocal),
     tip: multiplyM4V3(parentMatrix, tipLocal),
@@ -481,35 +540,56 @@ function computeLimbMoveHandles(
 }
 
 /**
- * The three twist rings for one limb, drawn around the joint it turns about
- * rather than around its free end — the ring has to sit on the circle the drag
- * actually sweeps, or the turn would not follow the pointer.
+ * The twist rings for one part, all drawn around the same point: the free end
+ * of a limb, where the move arrows already are, and the middle of the head.
+ *
+ * A limb's joint sits at the centre of the end it hangs by, so its long axis
+ * runs straight down the middle of it and out through the hand or the foot.
+ * That is what makes a roll along an arm a real twist — the ring's centre is a
+ * point on the axis it turns about, and a point on the axis of a rotation is
+ * the only kind that rotation leaves where it is, so the ring holds still under
+ * the pointer that is turning it.
+ *
+ * The head's nod is the one ring whose centre is off its own axis, since that
+ * axis runs through the neck rather than the middle of the head. It travels
+ * with the head as it nods, which reads as a ring attached to the head; what
+ * the sweep is measured against is frozen when the drag starts either way.
+ *
+ * Unlike the arrows, the rings ride the part: each names an axis of the part as
+ * it currently stands, so a ring keeps meaning the same *twist of that limb*
+ * however the limb has been aimed. Naming them in the body's axes instead would
+ * make the roll along an arm slide into a swing of it the moment the arm came
+ * up, which is the one thing a twist must never do.
  */
 function computeLimbTwistHandles(
   view: GizmoView,
   frame: LimbFrame,
 ): PoseAxisHandle[] {
-  const { screen, worldPerPixel } = projectPoint(view, frame.joint);
+  const rotation = rotationOnly(frame.parentMatrix);
+  const centerLocal = frame.twistCenterLocal;
+  const center = multiplyM4V3(frame.parentMatrix, centerLocal);
+
+  const { screen, worldPerPixel } = projectPoint(view, center);
   if (!screen || worldPerPixel <= 0) return [];
 
-  const rotation = rotationOnly(frame.parentMatrix);
-
-  return POSE_AXES.map((axis) => {
-    const localAxis = unitAxis(axis);
-    const direction = normalize(multiplyM4V3(rotation, localAxis));
+  return LIMB_TWIST_AXES[frame.part].map((axis) => {
+    // The part's own axis, carried into the space the drag is solved in. An arm
+    // held out sideways twists along the arm, not along the body it hangs off.
+    const localAxis = rotateV3ByQuat(frame.rotation, unitAxis(axis));
 
     return {
       kind: "twist" as const,
       part: frame.part,
       axis,
       localAxis,
+      centerLocal,
       jointLocal: frame.jointLocal,
       restOffset: frame.restOffset,
       worldPerPixel,
       ...buildRing(
         view,
-        frame.joint,
-        direction,
+        center,
+        normalize(multiplyM4V3(rotation, localAxis)),
         RING_RADIUS_PX * worldPerPixel,
       ),
     };
@@ -585,6 +665,7 @@ function computeModelTwistHandles(view: GizmoView): PoseAxisHandle[] {
       part: "body",
       axis: 1,
       localAxis: sceneAxis,
+      centerLocal: centerInScene,
       jointLocal: centerInScene,
       restOffset: null,
       worldPerPixel,
@@ -630,10 +711,16 @@ function buildRing(
   center: V3,
   axis: V3,
   radius: number,
-): { ring: V3[]; screenRing: ({ x: number; y: number } | null)[] } {
+): {
+  ring: V3[];
+  screenRing: ({ x: number; y: number } | null)[];
+  nearIndex: number;
+} {
   const [u, v] = planeBasis(axis);
   const ring: V3[] = [];
   const screenRing: ({ x: number; y: number } | null)[] = [];
+  let nearIndex = 0;
+  let nearest = Infinity;
 
   for (let step = 0; step <= RING_STEPS; step++) {
     const angle = (step / RING_STEPS) * Math.PI * 2;
@@ -645,10 +732,17 @@ function buildRing(
       center[2] + (u[2] * cos + v[2] * sin) * radius,
     ];
     ring.push(point);
-    screenRing.push(projectPoint(view, point).screen);
+    const projected = projectPoint(view, point);
+    screenRing.push(projected.screen);
+    // A pixel spans less world the nearer it is, so the smallest of these is
+    // the vertex closest to the camera.
+    if (projected.screen && projected.worldPerPixel < nearest) {
+      nearest = projected.worldPerPixel;
+      nearIndex = step;
+    }
   }
 
-  return { ring, screenRing };
+  return { ring, screenRing, nearIndex };
 }
 
 /** Two unit vectors spanning the plane an axis is normal to. */
@@ -658,6 +752,158 @@ function planeBasis(axis: V3): [V3, V3] {
   const seed: V3 = Math.abs(axis[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
   const u = normalize(cross(seed, axis));
   return [u, normalize(cross(axis, u))];
+}
+
+/**
+ * How flat the camera may squash a ring before its own plane stops being a
+ * sane place to measure a drag in: the ratio of the projected ellipse's short
+ * axis to its long one, 1 face-on and 0 edge-on.
+ *
+ * A ring is normally swept by meeting the pointer ray with the plane the circle
+ * lies in, which keeps the grabbed point under the pointer all the way round.
+ * That only holds while the ring still reads as a circle. Seen from the side it
+ * projects to a sliver, and then a pixel of pointer travel crosses a wide arc —
+ * the limb flings — until at the limit the plane cannot be met at all and the
+ * drag has nothing to start from. This is where the sweep hands over to the
+ * sliver on screen instead.
+ *
+ * A limb's one ring lies across the limb, so a front-on camera flattens it
+ * every time: this is the ordinary case, not the corner one.
+ */
+const RING_FLAT_THRESHOLD = 0.4;
+
+/**
+ * The screen direction a flattened ring is dragged along, and how many device
+ * pixels along it make one radian. Null while the ring still looks round enough
+ * to be swept in its own plane, which is the exact reading and the one to
+ * prefer.
+ *
+ * The rate is the ellipse's own long radius, so a flattened ring turns at the
+ * same pixels-per-radian it turned at face-on: the gesture keeps its scale as
+ * the camera orbits, rather than winding faster the further the ring closes.
+ */
+export function ringScreenSweep(
+  handle: PoseTwistHandle,
+  x: number,
+  y: number,
+): { direction: { x: number; y: number }; pixelsPerRadian: number } | null {
+  const screenRing = handle.screenRing;
+  // A ring with points behind the camera has no honest ellipse to measure, and
+  // the camera is then close enough in that its plane is the better reading.
+  if (screenRing.some((point) => !point)) return null;
+  const points = screenRing as { x: number; y: number }[];
+  // The closing point repeats the first, so every walk here stops short of it.
+  const steps = points.length - 1;
+  if (steps < 3) return null;
+
+  let cx = 0;
+  let cy = 0;
+  for (let i = 0; i < steps; i++) {
+    cx += points[i].x;
+    cy += points[i].y;
+  }
+  cx /= steps;
+  cy /= steps;
+
+  let major = 0;
+  let minor = Infinity;
+  let axisX = 0;
+  let axisY = 0;
+  for (let i = 0; i < steps; i++) {
+    const dx = points[i].x - cx;
+    const dy = points[i].y - cy;
+    const distance = Math.hypot(dx, dy);
+    if (distance > major) {
+      major = distance;
+      axisX = dx;
+      axisY = dy;
+    }
+    if (distance < minor) minor = distance;
+  }
+  if (major <= 0 || minor / major >= RING_FLAT_THRESHOLD) return null;
+
+  const direction = { x: axisX / major, y: axisY / major };
+  const sense = ringTurnSense(points, steps, {
+    x,
+    y,
+    cx,
+    cy,
+    minor,
+    direction,
+    nearIndex: handle.nearIndex % steps,
+  });
+  return {
+    direction: { x: direction.x * sense, y: direction.y * sense },
+    pixelsPerRadian: major,
+  };
+}
+
+/**
+ * Which way along the sliver the ring's own direction of turn runs where the
+ * pointer grabbed it: +1 when dragging that way winds the ring forwards, -1
+ * when it unwinds it.
+ *
+ * The line through the sliver's length is the ring's own horizon: everything to
+ * one side of it is the half of the circle nearer the camera, everything to the
+ * other side the half behind. The two halves have to turn opposite ways under
+ * the same drag — that is what a ring turning looks like, its near face coming
+ * towards the viewer as its far face goes away — so which side the pointer
+ * grabbed is the whole answer, and it is read off the drawn polyline, whose
+ * points are already in order of increasing angle.
+ *
+ * A pointer sitting on the horizon itself has picked no half. That is the
+ * ordinary case rather than a rare one: a press on the limb is handed to its
+ * ring, and the limb is what the ring is centred on. Such a press takes the
+ * near half, so dragging along the sliver carries the face of the limb the
+ * user can actually see with it.
+ */
+function ringTurnSense(
+  points: { x: number; y: number }[],
+  steps: number,
+  grab: {
+    x: number;
+    y: number;
+    cx: number;
+    cy: number;
+    minor: number;
+    direction: { x: number; y: number };
+    nearIndex: number;
+  },
+): number {
+  const { direction, cx, cy } = grab;
+  // Across the sliver rather than along it: the axis the two halves differ on.
+  const acrossX = -direction.y;
+  const acrossY = direction.x;
+  const across = (index: number) =>
+    (points[index].x - cx) * acrossX + (points[index].y - cy) * acrossY;
+
+  // The sense is constant over each half — a point's travel along the sliver
+  // only reverses where it crosses the horizon — so the extreme of the far side
+  // of it from the centre is the steadiest place to read it.
+  let extreme = 0;
+  let extremeAcross = -Infinity;
+  for (let i = 0; i < steps; i++) {
+    const offset = across(i);
+    if (offset <= extremeAcross) continue;
+    extremeAcross = offset;
+    extreme = i;
+  }
+  const ahead = points[(extreme + 1) % steps];
+  const behind = points[(extreme + steps - 1) % steps];
+  const forward =
+    (ahead.x - behind.x) * direction.x + (ahead.y - behind.y) * direction.y;
+  const positiveSense = forward < 0 ? -1 : 1;
+
+  // Which side the grab is on, falling back to the near half for a grab on the
+  // horizon — where the sides are a hair apart and the choice would otherwise
+  // turn on rounding.
+  const grabAcross = (grab.x - cx) * acrossX + (grab.y - cy) * acrossY;
+  const side =
+    Math.abs(grabAcross) > grab.minor * 0.15
+      ? grabAcross
+      : across(grab.nearIndex);
+
+  return side < 0 ? -positiveSense : positiveSense;
 }
 
 /**
@@ -679,17 +925,52 @@ export function findAxisHandleAt(
   for (const handle of handles) {
     const width = handle.kind === "move" ? AXIS_WIDTH_PX : RING_WIDTH_PX;
     const tolerance = (width / 2 + slopPx) * pixelRatio;
-    const distance =
-      handle.kind === "move"
-        ? handle.screenFrom && handle.screenTo
-          ? distanceToSegment(x, y, handle.screenFrom, handle.screenTo)
-          : Infinity
-        : distanceToPolyline(x, y, handle.screenRing);
+    const distance = axisHandleDistance(handle, x, y);
     if (distance > tolerance || distance >= bestDistance) continue;
     bestDistance = distance;
     best = handle;
   }
   return best;
+}
+
+/**
+ * The arrow or ring the pointer leans towards, however far off it is.
+ *
+ * This is what the centre handle stands in for. The handle names no direction
+ * of its own, so a press on it that started a drag could have meant any of the
+ * three — while the pointer's own offset from the joint already says which one
+ * the user is reaching for. Reading that offset turns an ambiguous grab into
+ * the nearest exact one, which is then lit up before the drag begins so the
+ * choice is visible rather than guessed at.
+ */
+export function findNearestAxisHandle(
+  handles: PoseAxisHandle[],
+  x: number,
+  y: number,
+): PoseAxisHandle | null {
+  let best: PoseAxisHandle | null = null;
+  let bestDistance = Infinity;
+
+  for (const handle of handles) {
+    const distance = axisHandleDistance(handle, x, y);
+    if (distance >= bestDistance) continue;
+    bestDistance = distance;
+    best = handle;
+  }
+  return best;
+}
+
+/** How far the pointer sits from a handle as it is drawn, in device pixels. */
+function axisHandleDistance(
+  handle: PoseAxisHandle,
+  x: number,
+  y: number,
+): number {
+  if (handle.kind !== "move")
+    return distanceToPolyline(x, y, handle.screenRing);
+  return handle.screenFrom && handle.screenTo
+    ? distanceToSegment(x, y, handle.screenFrom, handle.screenTo)
+    : Infinity;
 }
 
 /** Closest approach to a chain of projected points, skipping any behind the camera. */

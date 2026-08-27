@@ -14,8 +14,6 @@ import type { MiSkiRenderer } from "./MiSkiRenderer";
 import {
   getModelTurn,
   isModelMoveLocked,
-  resetModelTranslation,
-  resetModelRotation,
   setModelTranslation,
   getModelTranslation,
   setModelTurn,
@@ -26,6 +24,7 @@ import {
   computePoseHandles,
   findAxisHandleAt,
   findHandleAt,
+  findNearestAxisHandle,
   getPoseSpace,
   HANDLE_GRAB_SLOP_PX,
   PoseAxis,
@@ -33,6 +32,7 @@ import {
   PoseHandle,
   PoseMoveHandle,
   PoseTwistHandle,
+  ringScreenSweep,
   rotationOnly,
 } from "./PoseGizmo";
 import {
@@ -55,8 +55,21 @@ import { computeRay } from "./rayTracing";
 /** Drag distance before a press is treated as a drag rather than a click. */
 const DRAG_THRESHOLD_PX = 3;
 
-/** Window in which a second click on the same limb counts as a double-click. */
-const DOUBLE_CLICK_MS = 350;
+/**
+ * How far from a ring's centre the pointer has to sit, in CSS pixels, before
+ * the sweep around it means anything.
+ *
+ * Only the plane reading needs this. Near the centre a spoke is all direction
+ * and no length: a pointer a pixel to the left and a pointer a pixel to the
+ * right are half a turn apart, and a drag seeded there would fling the limb
+ * round on its first move. That matters now
+ * that a press on the part is handed to the nearest ring, because a roll ring
+ * is centred on the very handle that press lands on — so until the pointer has
+ * left this radius the grab is simply carried along with it, and the turn
+ * begins from wherever it steps out. Wider than the handle can be grabbed by,
+ * so a press there always starts un-engaged and engages by leaning.
+ */
+const RING_ENGAGE_RADIUS_PX = 16;
 
 /**
  * Dragging one of the three arrows at a limb's end. The end travels along that
@@ -97,14 +110,21 @@ type AxisDrag = {
 };
 
 /**
- * Dragging one of the three rings around a limb's joint. The limb turns about
- * that one axis — the roll that sliding an end around can never produce, which
- * is what turns a palm outwards or squares a foot to the ground.
+ * Dragging one of the rings on a limb. The limb turns about that one axis —
+ * the roll that sliding an end around can never produce, which is what turns a
+ * palm outwards or squares a foot to the ground.
  *
- * Measured the same way the arrows are: the pointer ray meets the ring's plane,
- * and the angle swept from where the drag was grabbed is the angle the joint
- * turns. So the limb stays under the pointer all the way round, at any camera
- * angle, rather than turning by however many pixels a drag happened to travel.
+ * The axis is the part's own, frozen as it stood when the ring was grabbed, so
+ * the turn is a twist *of the limb* rather than of the body it hangs off. It
+ * still composes on the left of the base rotation, which is the same thing: an
+ * axis already carried through a rotation, applied outside it, turns the part
+ * in its own frame.
+ *
+ * Measured the same way the arrows are, wherever the camera allows it: the
+ * pointer ray meets the ring's plane, and the angle swept from where the drag
+ * was grabbed is the angle the joint turns. So the limb stays under the pointer
+ * all the way round rather than turning by however many pixels a drag happened
+ * to travel. Which of the two readings this drag took is frozen in `measure`.
  */
 type RotateDrag = {
   kind: "rotate";
@@ -118,8 +138,8 @@ type RotateDrag = {
   localAxis: V3;
   /** The joint, in that space: the centre of the circle the drag sweeps. */
   centerLocal: V3;
-  /** Where on that circle the drag was grabbed, as a unit vector from the joint. */
-  grabDirection: V3;
+  /** Where the sweep is read: the ring's own plane, or the screen. */
+  measure: RingMeasure;
   /** Pose of this joint when the drag began; the turn composes onto it. */
   baseRotation: Quat;
   turn: TurnTracker;
@@ -148,6 +168,8 @@ type ModelMoveDrag = {
   anchor: V3;
   /** The single scene axis the drag is locked to. */
   axis: V3;
+  /** Which of the three that is, so the arrow being dragged stays lit. */
+  axisIndex: PoseAxis;
   /** How far along that axis the drag first landed. */
   grabAlong: number;
   exceededThreshold: boolean;
@@ -163,7 +185,8 @@ type ModelTurnDrag = {
   /** The upright scene axis, and the model's centre on it. */
   axis: V3;
   center: V3;
-  grabDirection: V3;
+  /** Where the sweep is read: the ring's own plane, or the screen. */
+  measure: RingMeasure;
   /** The model's heading when the drag began; the turn is measured from it. */
   baseAngle: number;
   turn: TurnTracker;
@@ -183,6 +206,40 @@ type DragState = AxisDrag | RotateDrag | ModelMoveDrag | ModelTurnDrag;
 type TurnTracker = { last: number; total: number };
 
 /**
+ * How a ring drag reads the angle it has swept, chosen once when the ring is
+ * grabbed and fixed for the drag's whole life — the camera cannot move while a
+ * pointer is captured, and changing method halfway would show as a jump.
+ *
+ * **plane** is the exact reading and the one to prefer: the pointer ray meets
+ * the circle's own plane, so the point that was grabbed stays under the pointer
+ * however far the drag goes.
+ *
+ * **screen** is what a ring the camera has flattened falls back to. There is no
+ * usable plane left to meet, so the travel along the sliver the ring has become
+ * is counted instead, at the rate the ring turned at when it was round. That is
+ * the same reading an arrow takes, and it is why a flattened ring is now as
+ * easy to turn as an arrow is to slide.
+ */
+type RingMeasure =
+  | {
+      kind: "plane";
+      /** Where on the circle the drag is holding, as a unit spoke from its centre. */
+      grabDirection: V3;
+      /** How far out the pointer must be for that spoke to mean anything. */
+      minSpoke: number;
+    }
+  | {
+      kind: "screen";
+      /** Unit screen direction a drag winds the ring forwards along. */
+      direction: { x: number; y: number };
+      /** Device pixels of travel along it that make one radian. */
+      pixelsPerRadian: number;
+      /** Pointer position at the last reading; travel is counted between them. */
+      lastX: number;
+      lastY: number;
+    };
+
+/**
  * How square-on the axis has to be before its line can be intersected with the
  * pointer ray. Below this the two are near enough parallel that the solve is
  * numerically meaningless — looking straight down an arrow, there is no drag
@@ -192,22 +249,38 @@ type TurnTracker = { last: number; total: number };
 const AXIS_PARALLEL_THRESHOLD = 0.08;
 
 /**
- * How far from edge-on a ring's plane has to be before the pointer ray can be
+ * How far from edge-on a plane has to be before the pointer ray can be
  * intersected with it. A ring seen exactly edge-on is a line, and where on it a
- * drag landed says nothing about an angle, so the drag holds still instead of
- * flinging the limb.
+ * drag landed says nothing about an angle.
+ *
+ * A backstop rather than a rule now: a ring flat enough for this to bite is
+ * read on screen instead (`RingMeasure`), long before the plane runs out.
  */
-const RING_EDGE_ON_THRESHOLD = 0.06;
+const PLANE_EDGE_ON_THRESHOLD = 0.06;
 
 /**
  * Posing. Only active while `poseMode` is on, which is what keeps it from
  * competing with painting and orbiting for the same drag.
  *
- * Posing happens through the gizmo and nowhere else: clicking a limb — or its
- * ring handle — selects it and puts the gizmo on it, and only the gizmo's own
- * handles change the pose. Dragging the limb itself is left to the camera,
- * because a drag across a limb never said which way in 3D it meant, and the
- * answer it guessed changed with every orbit.
+ * Clicking a limb — or its handle — selects it and puts the gizmo on it. From
+ * there every pose change goes through one of the gizmo's own handles, and the
+ * camera keeps every drag that lands on empty space.
+ *
+ * There is no freehand drag. A flat pointer movement cannot say which of the
+ * infinitely many 3D motions it meant, so a drag on the part itself is not read
+ * as a direction — it is read as a *choice of handle*: whichever arrow or ring
+ * the pointer fell nearest is the one that moves, lit up under the pointer
+ * before the press so the choice is visible rather than guessed at. Grabbing
+ * the arrow itself is the same gesture said precisely; grabbing the part is it
+ * said quickly. Either way the drag is measured against a direction the user
+ * picked, which is what makes the same gesture mean the same thing from every
+ * camera angle.
+ *
+ * Touch reads a press the same way, hover or no hover. It gets no preview of
+ * which handle a press stands for, but the choice is made the same way from the
+ * same offset, and a finger is far better at finding a limb than a ring the
+ * camera has flattened to a sliver. The camera keeps every one-finger drag that
+ * starts off the model, and both fingers of every pinch.
  *
  * The active tool picks which gizmo the selected part gets. **Move** puts three
  * arrows on the limb's free end, and dragging one slides that end along that
@@ -222,7 +295,6 @@ const RING_EDGE_ON_THRESHOLD = 0.06;
  */
 export class PoseInputManager {
   private drag: DragState | null = null;
-  private lastClick: { part: PosePart; at: number } | null = null;
   private hovered: PosePart | null = null;
   private hoveredAxis: PoseAxis | null = null;
   /**
@@ -273,14 +345,18 @@ export class PoseInputManager {
 
   /** The handle being dragged, or the one under the pointer. */
   public getActiveAxis(): PoseAxis | null {
-    if (this.drag) {
-      return this.drag.kind === "axis" || this.drag.kind === "rotate"
-        ? this.drag.axis
-        : this.drag.kind === "model-turn"
-          ? 1
-          : null;
+    const drag = this.drag;
+    if (!drag) return this.hoveredAxis;
+    switch (drag.kind) {
+      case "axis":
+      case "rotate":
+        return drag.axis;
+      case "model-move":
+        return drag.axisIndex;
+      case "model-turn":
+        // The model's ring is the upright one, whatever else is on screen.
+        return 1;
     }
-    return this.hoveredAxis;
   }
 
   /** Drops hover state, e.g. when pose mode is switched off. */
@@ -313,15 +389,18 @@ export class PoseInputManager {
       const drag = this.beginAxisHandleDrag(axisHandle, e.pointerId, x, y);
       if (drag) {
         this.drag = drag;
-        this.lastClick = null;
         this.startGesture(e, canvas);
+        return;
       }
+      // A handle with no drag left in it — an arrow pointing straight at the
+      // camera — still names its part. Swallowing the press instead would
+      // leave a press on something visible doing nothing at all.
+      this.selected = axisHandle.part;
       return;
     }
 
-    const part =
-      this.getHandleAt(x, y, e.pointerType)?.part ??
-      (e.pointerType === "touch" ? null : this.getPosePartAt(x, y));
+    const handle = this.getHandleAt(x, y, e.pointerType);
+    const part = handle?.part ?? this.getPosePartAt(x, y);
     if (!part) {
       // A press on empty space puts the gizmo away, the way clicking off an
       // object deselects it anywhere else.
@@ -329,31 +408,45 @@ export class PoseInputManager {
       return;
     }
 
-    // Double-click a limb to send it back to rest — or the model handle to put
-    // the whole skin back where it started, which is the same promise.
-    const now = performance.now();
-    if (
-      this.lastClick &&
-      this.lastClick.part === part &&
-      now - this.lastClick.at < DOUBLE_CLICK_MS
-    ) {
-      this.lastClick = null;
-      if (part === "body") {
-        if (getRendererState().poseTool === "twist") resetModelRotation();
-        else resetModelTranslation();
-      } else {
-        this.renderer.poseSystem.resetPart(part);
-        this.syncPoseToStore();
-      }
-      e.preventDefault();
-      return;
-    }
-
-    this.lastClick = { part, at: now };
     this.selected = part;
-    // Deliberately no gesture and no `preventDefault`: a press on a limb only
-    // selects it, and the drag that may follow belongs to the camera.
+
+    // Nothing here is dragged freehand. A press on the part — on its mesh, on
+    // its centre handle, anywhere — is handed to whichever arrow or ring it
+    // fell nearest, the one hover has already lit up. The pointer says which
+    // direction is meant; it never says the direction itself.
+    //
+    // The same on touch, where there is no hover to light it up first. A finger
+    // is worse at landing on a ring the camera has flattened to a sliver than a
+    // cursor is, so making it land there at all was the wrong thing to ask: the
+    // part is the target, it is as big as the limb, and the ring it stands for
+    // is the one the finger came down nearest.
+    const drag = this.beginNearestAxisHandleDrag(part, e.pointerId, x, y);
+    if (!drag) return;
+    this.drag = drag;
+    this.startGesture(e, canvas);
   };
+
+  /**
+   * The drag a press on a part stands in for: the nearest arrow or ring,
+   * grabbed where the pointer actually is rather than where that handle happens
+   * to run. The offsets both gestures carry are what make that work — an arrow
+   * drag measures from where the line was grabbed, a ring drag from the spoke
+   * it landed on — so the part holds still until the pointer moves, exactly as
+   * it would had the handle itself been hit.
+   *
+   * Null when the part has no handle to offer, which is the model's own while
+   * an environment holds it in place. The press then only selects, and nothing
+   * moves that the sidebar would not also refuse to move.
+   */
+  private beginNearestAxisHandleDrag(
+    part: PosePart,
+    pointerId: number,
+    x: number,
+    y: number,
+  ): DragState | null {
+    const nearest = this.getNearestAxisHandle(x, y, part);
+    return nearest ? this.beginAxisHandleDrag(nearest, pointerId, x, y) : null;
+  }
 
   /** The gesture a gizmo handle starts, which is the tool it was built for. */
   private beginAxisHandleDrag(
@@ -395,20 +488,30 @@ export class PoseInputManager {
         return;
       }
       drag.exceededThreshold = true;
-      // This gesture is a drag, not a click. Forget the press that started it,
-      // so a click landing shortly after doesn't read as a double-click and
-      // throw away the pose the user just dialled in.
-      this.lastClick = null;
+      // A ring read on screen counts travel between readings, so the pixels
+      // spent proving this was a drag at all must not also be a turn.
+      if (
+        (drag.kind === "rotate" || drag.kind === "model-turn") &&
+        drag.measure.kind === "screen"
+      ) {
+        drag.measure.lastX = x;
+        drag.measure.lastY = y;
+      }
     }
 
-    if (drag.kind === "axis") {
-      this.updateAxisDrag(drag, x, y);
-    } else if (drag.kind === "rotate") {
-      this.updateRotateDrag(drag, x, y);
-    } else if (drag.kind === "model-move") {
-      this.updateModelMoveDrag(drag, x, y);
-    } else {
-      this.updateModelTurnDrag(drag, x, y);
+    switch (drag.kind) {
+      case "axis":
+        this.updateAxisDrag(drag, x, y);
+        break;
+      case "rotate":
+        this.updateRotateDrag(drag, x, y);
+        break;
+      case "model-move":
+        this.updateModelMoveDrag(drag, x, y);
+        break;
+      case "model-turn":
+        this.updateModelTurnDrag(drag, x, y);
+        break;
     }
 
     e.preventDefault();
@@ -445,10 +548,38 @@ export class PoseInputManager {
   };
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== "Escape") return;
-    if (!this.renderer.isPoseGizmoVisible() || !this.selected) return;
+    if (e.key === "Escape") {
+      if (!this.renderer.isPoseGizmoVisible() || !this.selected) return;
+      if (this.drag) return;
+      this.clearSelection();
+      return;
+    }
+
+    // O arms and disarms posing. It lives here rather than in
+    // `EditInputManager` because posing is on both the editor and the preview,
+    // and only this manager is mounted on both — and O rather than P because
+    // the pen already owns that letter, the same second-letter fallback bulk
+    // paint takes with U. Leaving pose mode the other way — picking a brush or
+    // the eyedropper — needs nothing here: those shortcuts write `paintMode` /
+    // `colorPickerActive`, and the store's tool exclusions disarm posing.
+    if (e.key !== "o") return;
+    // Same guards as the paint shortcuts: no typing contexts, no browser or
+    // system combos.
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const target = e.target;
+    if (
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
+    ) {
+      return;
+    }
+    // Mid-drag the pointer owns the limb; yanking the mode out from under it
+    // would strand the drag with no gizmo to finish against.
     if (this.drag) return;
-    this.clearSelection();
+    const state = getRendererState();
+    state.setValue("poseMode", !state.poseMode);
   };
 
   private endDrag() {
@@ -541,9 +672,9 @@ export class PoseInputManager {
   }
 
   /**
-   * Freezes what a ring drag is measured against: the circle's plane, and the
-   * spoke the pointer landed on. Everything after is the angle between that
-   * spoke and the current one.
+   * Freezes what a ring drag is measured against: the circle's plane and the
+   * spoke the pointer landed on, or — when the camera has flattened the ring —
+   * the screen direction the sliver runs in.
    */
   private beginRotateDrag(
     handle: PoseTwistHandle,
@@ -555,15 +686,10 @@ export class PoseInputManager {
     const mesh = this.getPartMesh(part);
     if (!mesh) return null;
 
-    const ray = this.getPoseSpaceRay(mesh, x, y);
-    if (!ray) return null;
-
-    const grabDirection = ringDirection(
-      ray,
-      handle.jointLocal,
-      handle.localAxis,
+    const measure = this.ringMeasure(handle, x, y, () =>
+      this.getPoseSpaceRay(mesh, x, y),
     );
-    if (!grabDirection) return null;
+    if (!measure) return null;
 
     return {
       kind: "rotate",
@@ -574,8 +700,8 @@ export class PoseInputManager {
       startX: x,
       startY: y,
       localAxis: handle.localAxis,
-      centerLocal: handle.jointLocal,
-      grabDirection,
+      centerLocal: handle.centerLocal,
+      measure,
       baseRotation: this.renderer.poseSystem.getPartRotation(part),
       turn: { last: 0, total: 0 },
       exceededThreshold: false,
@@ -583,18 +709,55 @@ export class PoseInputManager {
   }
 
   /**
+   * Which reading a ring about to be dragged will take, and everything that
+   * reading needs frozen.
+   *
+   * The screen reading is tried first and taken only when the ring is too flat
+   * on screen for its plane to say anything — so an upright ring keeps the
+   * exact under-the-pointer sweep it always had, and the one the camera has
+   * squashed to a line, which used to fling or refuse the drag outright, gets a
+   * steady one instead of nothing.
+   *
+   * The ray is fetched lazily because the flattened case never needs it, and it
+   * costs a matrix inverse.
+   */
+  private ringMeasure(
+    handle: PoseTwistHandle,
+    x: number,
+    y: number,
+    getRay: () => { origin: V3; direction: V3 } | null,
+  ): RingMeasure | null {
+    const screen = ringScreenSweep(handle, x, y);
+    if (screen) return { kind: "screen", ...screen, lastX: x, lastY: y };
+
+    const ray = getRay();
+    if (!ray) return null;
+    const grabDirection = ringDirection(
+      ray,
+      handle.centerLocal,
+      handle.localAxis,
+    );
+    if (!grabDirection) return null;
+
+    return {
+      kind: "plane",
+      grabDirection,
+      minSpoke: RING_ENGAGE_RADIUS_PX * handle.worldPerPixel,
+    };
+  }
+
+  /**
    * Turns the limb about the ring the user grabbed.
    *
-   * Composed on the left of the base rotation, because the axis is named in the
-   * joint's parent space — the same frame the arrows use — so a ring means the
-   * same direction however the limb is already aimed. The joint's own limits
-   * then decide how much of that turn is a swing and how much a twist.
+   * The axis arrives already carried through the limb's own rotation, so
+   * composing on the left turns the limb in its own frame: an arm held out
+   * sideways rolls along the arm. The joint's own limits then decide how much
+   * of that turn is a swing and how much a twist.
    */
   private updateRotateDrag(drag: RotateDrag, x: number, y: number) {
-    const ray = this.getPoseSpaceRay(drag.mesh, x, y);
-    if (!ray) return;
-
-    const angle = this.sweep(ray, drag.centerLocal, drag.localAxis, drag);
+    const angle = this.sweep(drag.centerLocal, drag.localAxis, x, y, drag, () =>
+      this.getPoseSpaceRay(drag.mesh, x, y),
+    );
     if (angle === null) return;
 
     const state = getRendererState();
@@ -632,6 +795,7 @@ export class PoseInputManager {
       baseOffset: getModelTranslation(),
       anchor: handle.tipLocal,
       axis: handle.localAxis,
+      axisIndex: handle.axis,
       grabAlong: along,
       exceededThreshold: false,
     };
@@ -668,15 +832,10 @@ export class PoseInputManager {
     x: number,
     y: number,
   ): ModelTurnDrag | null {
-    const ray = this.getSceneRay(x, y);
-    if (!ray) return null;
-
-    const grabDirection = ringDirection(
-      ray,
-      handle.jointLocal,
-      handle.localAxis,
+    const measure = this.ringMeasure(handle, x, y, () =>
+      this.getSceneRay(x, y),
     );
-    if (!grabDirection) return null;
+    if (!measure) return null;
 
     return {
       kind: "model-turn",
@@ -685,8 +844,8 @@ export class PoseInputManager {
       startX: x,
       startY: y,
       axis: handle.localAxis,
-      center: handle.jointLocal,
-      grabDirection,
+      center: handle.centerLocal,
+      measure,
       baseAngle: getModelTurn(),
       turn: { last: 0, total: 0 },
       exceededThreshold: false,
@@ -699,10 +858,9 @@ export class PoseInputManager {
    * the value being written.
    */
   private updateModelTurnDrag(drag: ModelTurnDrag, x: number, y: number) {
-    const ray = this.getSceneRay(x, y);
-    if (!ray) return;
-
-    const angle = this.sweep(ray, drag.center, drag.axis, drag);
+    const angle = this.sweep(drag.center, drag.axis, x, y, drag, () =>
+      this.getSceneRay(x, y),
+    );
     if (angle === null) return;
 
     setModelTurn(drag.baseAngle + angle, {
@@ -719,16 +877,42 @@ export class PoseInputManager {
    * part round to the other side.
    */
   private sweep(
-    ray: { origin: V3; direction: V3 },
     center: V3,
     axis: V3,
-    drag: { grabDirection: V3; turn: TurnTracker },
+    x: number,
+    y: number,
+    drag: { measure: RingMeasure; turn: TurnTracker },
+    getRay: () => { origin: V3; direction: V3 } | null,
   ): number | null {
-    const direction = ringDirection(ray, center, axis);
-    if (!direction) return null;
+    const { measure, turn } = drag;
 
-    const angle = signedAngle(drag.grabDirection, direction, axis);
-    const turn = drag.turn;
+    if (measure.kind === "screen") {
+      // Travel along the sliver, at the rate the ring turns at when it is
+      // round. Counted between readings rather than from where the drag began,
+      // so it can wind on past the ends of the sliver and keep going.
+      turn.total +=
+        ((x - measure.lastX) * measure.direction.x +
+          (y - measure.lastY) * measure.direction.y) /
+        measure.pixelsPerRadian;
+      measure.lastX = x;
+      measure.lastY = y;
+      return turn.total;
+    }
+
+    const ray = getRay();
+    if (!ray) return null;
+    const spoke = ringSpoke(ray, center, axis);
+    if (!spoke) return null;
+
+    // Still inside the dead centre: the drag has not begun, so the grab follows
+    // the pointer out rather than measuring an angle that means nothing yet.
+    if (spoke.length < measure.minSpoke) {
+      measure.grabDirection = spoke.direction;
+      turn.last = 0;
+      return null;
+    }
+
+    const angle = signedAngle(measure.grabDirection, spoke.direction, axis);
     let step = angle - turn.last;
     if (step > Math.PI) step -= Math.PI * 2;
     else if (step < -Math.PI) step += Math.PI * 2;
@@ -793,23 +977,51 @@ export class PoseInputManager {
     const { x, y } = this.getPointerPos(e);
 
     const axisHandle = this.getAxisHandleAt(x, y, e.pointerType);
-    this.hoveredAxis = axisHandle?.axis ?? null;
+    const handle = axisHandle ? null : this.getHandleAt(x, y, e.pointerType);
     this.hovered = axisHandle
       ? axisHandle.part
-      : (this.getHandleAt(x, y, e.pointerType)?.part ??
+      : (handle?.part ??
         (e.pointerType === "touch" ? null : this.getPosePartAt(x, y)));
+
+    // Anywhere else on the part — its handle, its mesh — the arrow or ring the
+    // pointer leans towards lights up as though it were being hovered directly,
+    // because a press there will grab exactly that. Lighting it *before* the
+    // press is the whole point: the part alone could stand for any of the
+    // three, and the highlight is what says which one, while there is still
+    // time to lean the other way.
+    //
+    // Only for the part already selected, since those are the handles on
+    // screen: lighting an axis for a limb whose gizmo has not arrived yet would
+    // dim two arrows belonging to the limb the user is still looking at.
+    this.hoveredAxis =
+      axisHandle?.axis ??
+      (this.hovered && this.hovered === this.selected
+        ? (this.getNearestAxisHandle(x, y, this.hovered)?.axis ?? null)
+        : null);
 
     if (e.pointerType === "touch") return;
     const canvas = this.renderer.backend.canvas;
-    // A gizmo handle is dragged, a limb is only clicked to select it — so they
-    // don't get the same cursor.
+    // One cursor for all of it, because there is now only one gesture: grab an
+    // arrow or a ring — named outright, or by leaning towards it.
     if (canvas) {
-      canvas.style.cursor = axisHandle
-        ? "grab"
-        : this.hovered
-          ? "pointer"
-          : "default";
+      canvas.style.cursor = this.hovered ? "grab" : "default";
     }
+  }
+
+  /**
+   * The arrow or ring nearest the pointer, out of the ones `part` would show.
+   *
+   * Computed for the part asked about rather than the selected one, so a press
+   * on an unselected limb's handle can be handed to a handle that is only about
+   * to appear — the same one the user will see under the pointer the instant
+   * the gizmo lands there.
+   */
+  private getNearestAxisHandle(
+    x: number,
+    y: number,
+    part: PosePart,
+  ): PoseAxisHandle | null {
+    return findNearestAxisHandle(computeAxisHandles(this.renderer, part), x, y);
   }
 
   /** The gizmo handle under the pointer. Only the selected part has any. */
@@ -898,6 +1110,28 @@ function closestPointOnLine(
 }
 
 /**
+ * Where the pointer ray meets a plane, or null when the two are near enough
+ * parallel that no answer would mean anything.
+ */
+function rayPlanePoint(
+  ray: { origin: V3; direction: V3 },
+  point: V3,
+  normal: V3,
+): V3 | null {
+  const denominator = dot(ray.direction, normal);
+  if (Math.abs(denominator) < PLANE_EDGE_ON_THRESHOLD) return null;
+
+  const t = dot(subtractV3(point, ray.origin), normal) / denominator;
+  if (!Number.isFinite(t)) return null;
+
+  return [
+    ray.origin[0] + ray.direction[0] * t,
+    ray.origin[1] + ray.direction[1] * t,
+    ray.origin[2] + ray.direction[2] * t,
+  ];
+}
+
+/**
  * Where the pointer ray meets a ring's plane, as a unit spoke from its centre —
  * the direction the drag is currently holding. Null when the ring is too close
  * to edge-on for that point to mean anything, or when the pointer is dead on
@@ -908,21 +1142,27 @@ function ringDirection(
   center: V3,
   axis: V3,
 ): V3 | null {
-  const denominator = dot(ray.direction, axis);
-  if (Math.abs(denominator) < RING_EDGE_ON_THRESHOLD) return null;
+  return ringSpoke(ray, center, axis)?.direction ?? null;
+}
 
-  const t = dot(subtractV3(center, ray.origin), axis) / denominator;
-  if (!Number.isFinite(t)) return null;
+/** The same spoke, with the distance out to it kept: how far the grab is from
+ * the centre is what says whether its direction can be trusted. */
+function ringSpoke(
+  ray: { origin: V3; direction: V3 },
+  center: V3,
+  axis: V3,
+): { direction: V3; length: number } | null {
+  const hit = rayPlanePoint(ray, center, axis);
+  if (!hit) return null;
 
-  const offset: V3 = [
-    ray.origin[0] + ray.direction[0] * t - center[0],
-    ray.origin[1] + ray.direction[1] * t - center[1],
-    ray.origin[2] + ray.direction[2] * t - center[2],
-  ];
+  const offset = subtractV3(hit, center);
   const length = Math.hypot(offset[0], offset[1], offset[2]);
   if (length < 1e-6) return null;
 
-  return [offset[0] / length, offset[1] / length, offset[2] / length];
+  return {
+    direction: [offset[0] / length, offset[1] / length, offset[2] / length],
+    length,
+  };
 }
 
 /** The angle from one spoke to another, signed about the ring's own axis. */

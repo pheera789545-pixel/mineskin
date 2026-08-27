@@ -1,8 +1,7 @@
-import { Metadata, Viewport } from "next";
 import { generateAlternates, hasLocale } from "@/i18n/config";
 import { getDictionary } from "@/i18n/dictionaries";
+import { Metadata, Viewport } from "next";
 import PreviewClient from "./PreviewClient";
-import AppInstallBanner from "@/widgets/AppInstallBanner";
 
 interface PreviewPageProps {
   params: Promise<{ lang: string }>;
@@ -34,7 +33,7 @@ export async function generateMetadata({
 export default function PreviewPage() {
   return (
     <>
-      <AppInstallBanner />
+      {/* <AppInstallBanner /> */}
       <PreviewClient />
     </>
   );

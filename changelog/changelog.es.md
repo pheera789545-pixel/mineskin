@@ -1,3 +1,9 @@
+## 2026-08-27
+
+- Posa el modelo a mano: arrastra una extremidad para llevar su punta a su sitio o gírala sobre uno de sus ejes.
+- Arrastra el torso para mover o girar toda la skin, con los mismos valores que guardan los controles de Configuración.
+- Restablece la pose y la posición del modelo por separado, desde el panel de poses.
+
 ## 2026-08-18
 
 - MineSkin PRO ya es totalmente gratis en el App Store y en Google Play.
@@ -59,7 +65,7 @@ He vuelto a abrir el código del proyecto. Desde entonces ha habido muchísimos 
 
 - Añadida la posibilidad de borrar píxeles de la primera capa.
 
-## 2025-7-16
+## 2025-07-16
 
 - Corregida la cuadrícula, que no se mostraba en todos los navegadores ni en móvil.
 - Mejoras en el selector de color.

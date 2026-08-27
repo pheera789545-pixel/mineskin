@@ -1,3 +1,9 @@
+## 2026-08-27
+
+- Pose the model by hand: drag a limb to swing its end into place, or twist it around any of its three axes.
+- Drag the torso to move or turn the whole skin, the same values the Settings sliders hold.
+- Reset the pose and the model's position separately from the pose panel.
+
 ## 2026-08-18
 
 - MineSkin PRO is now completely free on the App Store and Google Play.
@@ -59,7 +65,7 @@ I reopened source the project again. Too many changes has happened since but tho
 
 - Add ability to remove pixels from the first layer.
 
-## 2025-7-16
+## 2025-07-16
 
 - Fix grid where it is not showing on all browsers and on mobile.
 - Improvement in color picker.

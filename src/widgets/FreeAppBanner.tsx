@@ -4,6 +4,7 @@ import IconButton from "@/components/IconButton/IconButton";
 import * as Icons from "@/components/Icons/Icons";
 import { usePopupQueue } from "@/contexts/PopupQueueContext";
 import { isNativeWebview } from "@/hooks/useNativeWebview";
+import { useAppBannerHeight } from "@/hooks/useAppBannerHeight";
 import { useDictionary } from "@/i18n/DictionaryContext";
 import {
   STORE_LINKS,
@@ -12,10 +13,9 @@ import {
   type StorePlatform,
 } from "@/lib/storeLinks";
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "free-app-banner-dismissed";
-const CSS_VAR = "--app-banner-height";
 
 /**
  * Evergreen "the app is completely free" banner. Same layout as the retired
@@ -31,9 +31,11 @@ export default function FreeAppBanner() {
   const bannerRef = useRef<HTMLDivElement>(null);
   const viewTracked = useRef(false);
 
-  const updateCSSVar = useCallback((height: number) => {
-    document.documentElement.style.setProperty(CSS_VAR, `${height}px`);
-  }, []);
+  const releaseBannerHeight = useAppBannerHeight(
+    "freeAppBanner",
+    visible,
+    bannerRef,
+  );
 
   useEffect(() => {
     // Never inside the native app — those users already have it. Installed-PWA
@@ -61,25 +63,6 @@ export default function FreeAppBanner() {
     }
   }, [visible]);
 
-  useEffect(() => {
-    if (!visible || !bannerRef.current) {
-      updateCSSVar(0);
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        updateCSSVar(entry.contentRect.height);
-      }
-    });
-    observer.observe(bannerRef.current);
-    updateCSSVar(bannerRef.current.offsetHeight);
-
-    return () => {
-      observer.disconnect();
-      updateCSSVar(0);
-    };
-  }, [visible, updateCSSVar]);
 
   const handleDismiss = () => {
     unregisterPopup("freeAppBanner");
@@ -114,7 +97,9 @@ export default function FreeAppBanner() {
           }}
           exit={{ y: -80, opacity: 0, transition: { duration: 0.3 } }}
           onAnimationComplete={(def: { opacity?: number }) => {
-            if (def.opacity === 0) updateCSSVar(0);
+            // Reset the height once the exit animation completes — unless a
+            // higher-priority banner has already claimed the slot.
+            if (def.opacity === 0) releaseBannerHeight();
           }}
         >
           <div className="bg-gradient-to-r from-blue-50 to-sky-50 dark:from-blue-950 dark:to-sky-950 border-b border-blue-200 dark:border-blue-800 safe-area-pt">

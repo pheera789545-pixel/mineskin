@@ -180,6 +180,41 @@ O botão **Grade** na barra de ferramentas (Modo Editor) sobrepõe guias de pixe
 
 ---
 
+## Pose
+
+O botão **Posicionar membros** na barra de ferramentas — ou a tecla `O` — dobra o modelo em uma pose na mão. Duas ferramentas dividem o painel:
+
+- **Posicionar** — desliza a ponta livre de um membro em um eixo. Três setas marcam os eixos.
+- **Torcer** — torce um membro em um eixo. Três anéis marcam os eixos.
+
+Nada é arrastado à mão livre. A seta ou o anel mais próximo de onde o seu arraste começar é o que ele segue, então o mesmo gesto significa a mesma coisa de qualquer ângulo de câmera.
+
+### Mouse e Toque
+
+- **Mouse** — arraste qualquer membro direto. Passar o cursor por cima destaca a seta ou o anel que o arraste vai usar.
+- **Toque** — toque primeiro na alça de um membro para ver as setas ou os anéis dele e depois arraste um deles. Um arraste comum no modelo continua orbitando a câmera.
+- Pressione `Esc`, ou clique em um espaço vazio, para guardar o gizmo.
+- Pressione `O` de novo para sair do modo pose. No editor, um atalho de pincel (`P`, `U`, `V`, `D`, `E`) ou o conta-gotas (`I`) também sai dele, indo direto para aquela ferramenta.
+
+### O Tronco
+
+O tronco não tem articulação própria, então a alça dele comanda o modelo inteiro: as setas deslizam a skin pela cena e o anel vira a skin no lugar. Os dois escrevem os mesmos valores dos controles de mover e girar em **Configurações**, então a alça e os controles sempre concordam.
+
+Os ambientes 3D prontos apoiam o modelo no chão deles e ignoram os valores de mover, então as setas do tronco somem por lá. Virar o modelo continua funcionando.
+
+### Redefinindo
+
+- **Redefinir pose** zera os membros.
+- **Redefinir posição da skin** devolve o mover e o girar do modelo inteiro ao padrão.
+
+Os dois são independentes, então limpar uma pose não desfaz a posição da skin que você ajustou fora do modo pose.
+
+### Pose e Animações
+
+As duas são mutuamente exclusivas: iniciar uma animação desliga a pose, e ligar a pose para a animação. Sua pose é salva junto com a skin e volta quando você recarrega.
+
+---
+
 ## Animações
 
 No Modo Visualização, o botão **Animações** coloca o modelo em um loop:
@@ -285,6 +320,7 @@ Abra o painel de **Configurações** pelo ícone de engrenagem na barra de ferra
 - `I` — Conta-gotas
 - `M` — Ativar/desativar a simetria
 - `R` — Abrir/fechar o painel de referência
+- `O` — Ativar/desativar o modo pose
 
 ### Histórico
 

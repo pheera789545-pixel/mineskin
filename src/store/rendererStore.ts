@@ -23,6 +23,28 @@ const definedWindow = typeof window !== "undefined";
 // which now teaches the brush slot — must also mark the hint as seen.
 export const BRUSH_INTRO_HINT_KEY = "brush-intro-hint-dismissed";
 
+/**
+ * Painting and posing share one tool slot: arming either disarms the other.
+ * It lives here rather than in the rail so every entry point — flyout tiles,
+ * rail buttons, keyboard shortcuts — gets the exclusion for free, and so the
+ * state can never describe two armed tools at once.
+ *
+ * Only arming excludes: turning a tool off leaves the others alone.
+ */
+function toolExclusions(
+  key: keyof FormValues,
+  value: FormValues[keyof FormValues],
+): Partial<FormValues> | null {
+  // Picking a brush (or the eyedropper) is how the user leaves pose mode.
+  if (key === "paintMode") return { poseMode: false };
+  if (key === "colorPickerActive") return value ? { poseMode: false } : null;
+  // Posing owns the pointer, so the eyedropper can't stay armed under it. The
+  // brush needs no reset: paintMode always holds a value, and the rail reads
+  // it as disarmed while poseMode is on, so leaving pose mode restores it.
+  if (key === "poseMode") return value ? { colorPickerActive: false } : null;
+  return null;
+}
+
 // Detect initial dark mode from the class set by the blocking script
 const isInitiallyDark = definedWindow
   ? document.documentElement.classList.contains("dark")
@@ -289,6 +311,7 @@ const createRendererStore = () =>
             const hadError = state.errors[key] !== undefined;
             return {
               [key]: finalValue,
+              ...toolExclusions(key, finalValue as FormValues[typeof key]),
               ...(hadError
                 ? { errors: { ...state.errors, [key]: undefined } }
                 : null),

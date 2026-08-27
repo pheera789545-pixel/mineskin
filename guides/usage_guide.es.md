@@ -180,6 +180,41 @@ El botón **Cuadrícula** de la barra de herramientas (modo Editor) superpone gu
 
 ---
 
+## Poses
+
+El botón **Posar extremidades** de la barra de herramientas —o la tecla `O`— dobla el modelo a mano para darle una pose. El panel reúne dos herramientas:
+
+- **Mover**: desliza la punta libre de una extremidad en un solo eje. Tres flechas marcan los ejes.
+- **Girar**: gira una extremidad sobre un solo eje. Tres anillos marcan los ejes.
+
+Ningún arrastre es libre. Cada uno sigue la flecha o el anillo más cercano a donde empieces, así que el mismo gesto hace lo mismo desde cualquier ángulo de cámara.
+
+### Ratón y táctil
+
+- **Ratón**: arrastra cualquier extremidad directamente. Al pasar el puntero por encima se ilumina la flecha o el anillo que usará el arrastre.
+- **Táctil**: toca primero el controlador de una extremidad para que aparezcan sus flechas o sus anillos, y después arrastra uno de ellos. Un arrastre normal sobre el modelo sigue orbitando la cámara.
+- Pulsa `Esc`, o haz clic en un espacio vacío, para ocultar los controles.
+- Pulsa `O` otra vez para salir del modo pose. En el editor también lo dejas con un atajo de pincel (`P`, `U`, `V`, `D`, `E`) o con el del cuentagotas (`I`), que te llevan directamente a esa herramienta.
+
+### El torso
+
+El torso no tiene articulación propia, así que su controlador actúa sobre el modelo entero: las flechas mueven la skin por la escena y el anillo la gira sin moverla del sitio. Los dos escriben los mismos valores que los controles de mover y girar de **Configuración**, así que el torso y esos controles siempre coinciden.
+
+Los entornos 3D colocan el modelo sobre su propio suelo e ignoran los valores de movimiento, así que ahí desaparecen las flechas del torso. Girar el modelo sigue funcionando.
+
+### Restablecer
+
+- **Restablecer pose** borra la pose de las extremidades.
+- **Restablecer posición del modelo** devuelve el movimiento y el giro del modelo entero a sus valores por defecto.
+
+Se restablecen por separado, así que borrar una pose no deshace la colocación que hayas ajustado fuera del modo pose.
+
+### Poses y animaciones
+
+Son mutuamente excluyentes: iniciar una animación desactiva **Posar extremidades**, y activarlo detiene la animación. Tu pose se guarda con la skin y vuelve cuando recargas.
+
+---
+
 ## Animaciones
 
 En el modo Vista previa, el botón **Animaciones** reproduce el modelo en bucle:
@@ -285,6 +320,7 @@ Abre el panel de **Configuración** con el icono de engranaje de la barra de her
 - `I`: Cuentagotas
 - `M`: Activar o desactivar la simetría
 - `R`: Abrir o cerrar el panel de referencia
+- `O`: Activar o desactivar el modo pose
 
 ### Historial
 

@@ -4,6 +4,7 @@ import IconButton from "@/components/IconButton/IconButton";
 import * as Icons from "@/components/Icons/Icons";
 import { usePopupQueue } from "@/contexts/PopupQueueContext";
 import { isNativeWebview } from "@/hooks/useNativeWebview";
+import { useAppBannerHeight } from "@/hooks/useAppBannerHeight";
 import { useDictionary } from "@/i18n/DictionaryContext";
 import { isPromoActive } from "@/lib/promo";
 import {
@@ -12,12 +13,11 @@ import {
   type MaybeStorePlatform,
 } from "@/lib/storeLinks";
 import { AnimatePresence, motion } from "framer-motion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "app-install-banner-dismissed";
 const VISIT_COUNT_KEY = "mineskin-visit-count";
 const VISIT_THRESHOLD = 1; // Show banner on first visit (set to 1 or higher to require multiple visits)
-const CSS_VAR = "--app-banner-height";
 
 export default function AppInstallBanner() {
   const { dictionary } = useDictionary();
@@ -26,9 +26,11 @@ export default function AppInstallBanner() {
   const visible = isActivePopup("appInstallBanner");
   const bannerRef = useRef<HTMLDivElement>(null);
 
-  const updateCSSVar = useCallback((height: number) => {
-    document.documentElement.style.setProperty(CSS_VAR, `${height}px`);
-  }, []);
+  const releaseBannerHeight = useAppBannerHeight(
+    "appInstallBanner",
+    visible,
+    bannerRef,
+  );
 
   useEffect(() => {
     if (isNativeWebview()) return;
@@ -58,27 +60,6 @@ export default function AppInstallBanner() {
     return () => clearTimeout(timer);
   }, [registerPopup]);
 
-  // Measure banner and set CSS variable when visible
-  useEffect(() => {
-    if (!visible || !bannerRef.current) {
-      updateCSSVar(0);
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        updateCSSVar(entry.contentRect.height);
-      }
-    });
-    observer.observe(bannerRef.current);
-    // Initial measurement
-    updateCSSVar(bannerRef.current.offsetHeight);
-
-    return () => {
-      observer.disconnect();
-      updateCSSVar(0);
-    };
-  }, [visible, updateCSSVar]);
 
   const handleDismiss = () => {
     unregisterPopup("appInstallBanner");
@@ -105,8 +86,9 @@ export default function AppInstallBanner() {
           }}
           exit={{ y: -80, opacity: 0, transition: { duration: 0.3 } }}
           onAnimationComplete={(def: { opacity?: number }) => {
-            // Reset height to 0 when exit animation completes
-            if (def.opacity === 0) updateCSSVar(0);
+            // Reset the height once the exit animation completes — unless a
+            // higher-priority banner has already claimed the slot.
+            if (def.opacity === 0) releaseBannerHeight();
           }}
         >
           <div className="bg-neutral-50 dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700 safe-area-pt">

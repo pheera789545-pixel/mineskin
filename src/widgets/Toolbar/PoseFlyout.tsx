@@ -146,9 +146,11 @@ const ResetButton: React.FC<{
  */
 const PosePanel: React.FC<{
   touch?: boolean;
+  /** False once another tool took the slot, so the tiles stop reading as live. */
+  armed: boolean;
   onResetPose?: () => void;
   onResetTransform?: () => void;
-}> = ({ touch = false, onResetPose, onResetTransform }) => {
+}> = ({ touch = false, armed, onResetPose, onResetTransform }) => {
   const { dictionary: dict } = useDictionary();
   const poseTool = useRendererStore((s) => s.poseTool);
   const { hasPose, hasTransform } = usePoseDirty();
@@ -165,12 +167,18 @@ const PosePanel: React.FC<{
         )}
       >
         {POSE_TOOLS.map(({ tool, icon: Icon, labelKey }) => {
-          const isActive = poseTool === tool;
+          const isActive = armed && poseTool === tool;
           return (
             <button
               key={tool}
               type="button"
-              onClick={() => setValue("poseTool", tool)}
+              // Picking a tile arms posing the same way picking a brush arms
+              // the brush slot, so the panel is never showing a tool the
+              // canvas isn't listening to.
+              onClick={() => {
+                setValue("poseTool", tool);
+                if (!armed) setValue("poseMode", true);
+              }}
               aria-pressed={isActive}
               className={cn(
                 "flex cursor-pointer flex-col items-center justify-center transition-colors duration-150",
@@ -312,6 +320,7 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
             </div>
             <PosePanel
               touch
+              armed={poseMode}
               onResetPose={onResetPose}
               onResetTransform={onResetTransform}
             />
@@ -346,8 +355,11 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
               sideOffset={8}
               hidden={open}
             >
+              {/* The shortcut shows in both states on purpose: armed, it's
+                  also the way back out. */}
               <span className="block max-w-52">
-                {poseMode ? hint : dict.toolbar.poseMode}
+                {poseMode ? hint : dict.toolbar.poseMode}{" "}
+                <span className="text-neutral-400">(O)</span>
               </span>
               <Tooltip.Arrow className="fill-neutral-900 dark:fill-neutral-700" />
             </Tooltip.Content>
@@ -401,6 +413,7 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
                 </div>
 
                 <PosePanel
+                  armed={poseMode}
                   onResetPose={onResetPose}
                   onResetTransform={onResetTransform}
                 />

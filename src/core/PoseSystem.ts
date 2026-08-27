@@ -62,48 +62,49 @@ export function isPoseLimb(name: string): name is PoseLimb {
 }
 
 /**
- * Soft joint limits, in radians. The Minecraft rig has no elbows or knees, so
- * a limb is a single rigid box — past these angles the geometry reads as broken
- * rather than posed. `twistAxis` is the limb's long axis, split out so a twist
- * can be limited far more tightly than a swing.
+ * Each part's own long axis, the one a twist spins about.
+ *
+ * Kept apart from the joint limits below because every limb needs it whether or
+ * not it is limited: a drag decomposes the rotation about this axis to tell how
+ * much of the turn is a swing and how much a twist.
+ */
+const TWIST_AXIS: Record<PoseLimb, V3> = {
+  head: [0, 1, 0],
+  leftArm: [0, 1, 0],
+  rightArm: [0, 1, 0],
+  leftLeg: [0, 1, 0],
+  rightLeg: [0, 1, 0],
+};
+
+/**
+ * Soft joint limits, in radians, for the joints that have them.
+ *
+ * Only the head does. A limb used to stop at an anatomical angle too, but the
+ * Minecraft rig has no elbows or knees, so there is no pose a limit rules out
+ * that the limb could have reached some other way — all it did was lock the
+ * drag partway round, at the same angle every time. Arms and legs now turn
+ * freely, right the way round; what keeps one out of the torso is the collider,
+ * which stops the limb where it actually meets something rather than where a
+ * number said it should.
+ *
+ * The head keeps its limits because it is a cube pivoting on the spot: nothing
+ * blocks it, so without them it simply spins.
  */
 type JointLimit = {
   maxSwing: number;
   maxTwist: number;
-  twistAxis: V3;
 };
 
-const JOINT_LIMITS: Record<PoseLimb, JointLimit> = {
+const JOINT_LIMITS: Partial<Record<PoseLimb, JointLimit>> = {
   head: {
     maxSwing: (80 * Math.PI) / 180,
     maxTwist: (75 * Math.PI) / 180,
-    twistAxis: [0, 1, 0],
-  },
-  leftArm: {
-    maxSwing: (150 * Math.PI) / 180,
-    maxTwist: (90 * Math.PI) / 180,
-    twistAxis: [0, 1, 0],
-  },
-  rightArm: {
-    maxSwing: (150 * Math.PI) / 180,
-    maxTwist: (90 * Math.PI) / 180,
-    twistAxis: [0, 1, 0],
-  },
-  leftLeg: {
-    maxSwing: (100 * Math.PI) / 180,
-    maxTwist: (45 * Math.PI) / 180,
-    twistAxis: [0, 1, 0],
-  },
-  rightLeg: {
-    maxSwing: (100 * Math.PI) / 180,
-    maxTwist: (45 * Math.PI) / 180,
-    twistAxis: [0, 1, 0],
   },
 };
 
 /** The part's own long axis, the one a twist spins about. */
 export function getPartTwistAxis(part: PoseLimb): V3 {
-  return JOINT_LIMITS[part].twistAxis;
+  return TWIST_AXIS[part];
 }
 
 /** Left/right pairs, for mirroring a pose across the body. */
@@ -121,12 +122,15 @@ export const POSE_SNAP_STEP = (15 * Math.PI) / 180;
 const NEUTRAL_EPSILON = (2 * Math.PI) / 180;
 
 /**
- * Clamps a joint rotation to its limits, twist and swing separately so that a
- * shoulder can swing a long way without also being allowed to spiral.
+ * Clamps a joint rotation to its limits, twist and swing separately so that the
+ * head can turn a long way without also being allowed to spiral. A joint with
+ * no limits — every limb — passes straight through.
  */
 export function clampToJointLimit(part: PoseLimb, rotation: Quat): Quat {
   const limit = JOINT_LIMITS[part];
-  const { swing, twist } = swingTwistDecompose(rotation, limit.twistAxis);
+  if (!limit) return normalizeQuat(rotation);
+
+  const { swing, twist } = swingTwistDecompose(rotation, TWIST_AXIS[part]);
   return normalizeQuat(
     multiplyQuat(
       clampQuatAngle(swing, limit.maxSwing),
@@ -231,9 +235,9 @@ export function getPosePivot(mesh: MinecraftPart): V3 {
  * part's local space. Read off the geometry rather than hard-coded, so it stays
  * right across slim/wide arms and both texture resolutions.
  *
- * It is not simply a multiple of the Y axis: a shoulder joint sits inboard of
- * the arm it swings, so the offset leans sideways too — which is exactly what
- * makes the hand, not the shoulder, the point that tracks the cursor.
+ * Every joint sits at the centre of the end its part hangs by, so this comes
+ * out as a plain run down the part's long axis — and the free end it points at
+ * is the hand, the foot or the crown, the point a drag actually aims.
  */
 export function getPartRestOffset(mesh: MinecraftPart, part: PoseLimb): V3 {
   const { min, max } = mesh.getLocalBounds();
@@ -242,6 +246,33 @@ export function getPartRestOffset(mesh: MinecraftPart, part: PoseLimb): V3 {
   return [
     (min[0] + max[0]) / 2 - pivot[0],
     tipY - pivot[1],
+    (min[2] + max[2]) / 2 - pivot[2],
+  ];
+}
+
+/**
+ * Vector from a part's joint to the point its twist rings are drawn around, at
+ * rest and in the part's local space — so once the pose has turned the part,
+ * the rings ride along with it.
+ *
+ * A limb is a long box swinging from one end, and what a twist visibly turns is
+ * the other one: the rings go around the hand or the foot, where the move
+ * tool's arrows already are, so switching tools swaps the gizmo without moving
+ * it. The head is a cube that turns on the spot instead, so its rings go around
+ * its middle — a ring level with the crown would read as balanced on top of the
+ * head rather than wrapped around it.
+ */
+export function getPartTwistCenterOffset(
+  mesh: MinecraftPart,
+  part: PoseLimb,
+): V3 {
+  if (part !== "head") return getPartRestOffset(mesh, part);
+
+  const { min, max } = mesh.getLocalBounds();
+  const pivot = getPosePivot(mesh);
+  return [
+    (min[0] + max[0]) / 2 - pivot[0],
+    (min[1] + max[1]) / 2 - pivot[1],
     (min[2] + max[2]) / 2 - pivot[2],
   ];
 }
@@ -388,11 +419,6 @@ export class PoseSystem {
   ): void {
     this.bodyClip = clip;
     this.writeBody();
-  }
-
-  public resetPart(part: PoseLimb): void {
-    delete this.pose[part];
-    this.apply();
   }
 
   public reset(): void {
