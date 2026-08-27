@@ -2,7 +2,7 @@ import * as Popover from "@radix-ui/react-popover";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { ReloadIcon } from "@radix-ui/react-icons";
 import { AnimatePresence, motion } from "framer-motion";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useRendererStore } from "@/store";
 import { isEnvironmentTransformLocked } from "@/core/environment";
@@ -53,6 +53,15 @@ const TwistToolIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
     <path d="M9.4 18.6 6.5 15.5l3.1-1.7" />
   </svg>
 );
+
+// Mobile sheet snap heights, in visible pixels: folded fits the handle +
+// header + tool row, expanded shows the panel whole so the resets come into
+// view. Both are px because vaul's fractional snaps are fractions of the
+// *viewport*, which would open this short sheet to full screen. These two are
+// only the first paint's guess — the sheet measures both off the real panel
+// once it mounts, so neither has to encode what the header or a tile is worth.
+const SNAP_FOLDED_HEIGHT = 180;
+const SNAP_EXPANDED_HEIGHT = 250;
 
 const POSE_TOOLS: {
   tool: PoseTool;
@@ -126,10 +135,10 @@ const ResetButton: React.FC<{
     onClick={onClick}
     disabled={!enabled}
     className={cn(
-      "flex w-full items-center justify-center gap-2 border font-medium transition-colors duration-150",
+      "flex w-full items-center justify-center border font-medium transition-colors duration-150",
       touch
-        ? "h-[50px] rounded-[14px] text-[13px]"
-        : "rounded-md px-2.5 py-2 text-[13px]",
+        ? "h-[50px] gap-1.5 rounded-[14px] px-1.5 text-[12.5px] whitespace-nowrap"
+        : "gap-2 rounded-md px-2.5 py-2 text-[13px]",
       enabled
         ? "cursor-pointer border-neutral-200 bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:border-neutral-700 dark:bg-neutral-900/50 dark:text-neutral-300 dark:hover:bg-neutral-700"
         : "cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400 opacity-60 dark:border-neutral-700 dark:bg-neutral-900/50 dark:text-neutral-500",
@@ -148,9 +157,20 @@ const PosePanel: React.FC<{
   touch?: boolean;
   /** False once another tool took the slot, so the tiles stop reading as live. */
   armed: boolean;
+  /** Touch only: false while the sheet is folded to just the tool row. */
+  expanded?: boolean;
+  /** Touch only: the sheet measures its folded snap off the tool row. */
+  toolsRef?: React.Ref<HTMLDivElement>;
   onResetPose?: () => void;
   onResetTransform?: () => void;
-}> = ({ touch = false, armed, onResetPose, onResetTransform }) => {
+}> = ({
+  touch = false,
+  armed,
+  expanded = true,
+  toolsRef,
+  onResetPose,
+  onResetTransform,
+}) => {
   const { dictionary: dict } = useDictionary();
   const poseTool = useRendererStore((s) => s.poseTool);
   const { hasPose, hasTransform } = usePoseDirty();
@@ -159,6 +179,7 @@ const PosePanel: React.FC<{
   return (
     <>
       <div
+        ref={toolsRef}
         className={cn(
           "grid grid-cols-2",
           touch
@@ -210,8 +231,15 @@ const PosePanel: React.FC<{
 
       <div
         className={cn(
-          "flex flex-col",
-          touch ? "mt-[18px] gap-[9px]" : "mt-3 gap-1.5",
+          // On touch the two resets sit side by side: the sheet already spends
+          // most of its height on the tool tiles, and a second full-width row
+          // pushes the model further off screen for no gain.
+          touch
+            ? "mt-[18px] grid grid-cols-2 gap-[9px] transition-opacity duration-200"
+            : "mt-3 flex flex-col gap-1.5",
+          // Folded, this row sits below the sheet's cut line — fading it keeps
+          // a sliver of button from peeking over the edge mid-drag.
+          touch && !expanded && "pointer-events-none opacity-0",
         )}
       >
         <ResetButton
@@ -264,6 +292,114 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
   const isTouch = useIsTouch();
   const [open, setOpen] = useState(false);
   const hint = useToolHint(poseTool, isTouch);
+  const [snapFolded, setSnapFolded] = useState(`${SNAP_FOLDED_HEIGHT}px`);
+
+  // The sheet snaps between two heights, the same two steps the brush sheet
+  // has: folded shows just the Move/Twist row so the model stays in view while
+  // limbs are dragged, expanded brings the resets up. Dragging the sheet or
+  // tapping the chevron moves between them, and the step survives close/reopen
+  // so the sheet comes back the way it was last left.
+  //
+  // The step is the state and the snap string is derived, not the other way
+  // round: the expanded height is measured, and a stored snap value would go
+  // stale the moment that measurement lands.
+  const [folded, setFolded] = useState(false);
+  const [snapExpanded, setSnapExpanded] = useState(`${SNAP_EXPANDED_HEIGHT}px`);
+  const snap = folded ? snapFolded : snapExpanded;
+  const expanded = !folded;
+  const setExpanded = (next: boolean) => setFolded(!next);
+
+  // Both snaps are measured off the real panel. vaul's px snaps are visible
+  // height from the sheet's top edge, so expanded is the distance from there to
+  // the bottom of the padded content — the drawer's own grab handle included —
+  // and folded is the same distance to the bottom of the tool row, plus that
+  // very padding. Reading the padding rather than re-deriving it is what keeps
+  // the folded step's safe area honest: it resolves
+  // calc(env(safe-area-inset-bottom) + 1.5rem) to the pixels the phone actually
+  // reserves, so a folded sheet clears the home indicator by exactly the margin
+  // an expanded one does — on a notched phone and a flat-bottomed one alike.
+  //
+  // The nodes are held as state, not refs: vaul mounts the sheet's portal in a
+  // commit of its own, after this component's effects have already run. Keyed
+  // on `open`, the measurement would find null refs, bail, and never be
+  // retried — leaving both snaps on their first-paint guesses, the expanded one
+  // short enough to push the safe-area padding off screen. Callback refs re-run
+  // it the moment the real nodes attach.
+  const [sheetEl, setSheetEl] = useState<HTMLDivElement | null>(null);
+  const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null);
+  const [toolsEl, setToolsEl] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const sheet = sheetEl;
+    const body = bodyEl;
+    const tools = toolsEl;
+    if (!sheet || !body || !tools) return;
+    const measure = () => {
+      // A translate offsets every rect equally, so these read the same mid-drag
+      // as they do at rest.
+      const top = sheet.getBoundingClientRect().top;
+      const padding = parseFloat(getComputedStyle(body).paddingBottom) || 0;
+      const full = Math.round(body.getBoundingClientRect().bottom - top);
+      const toolRow = Math.round(
+        tools.getBoundingClientRect().bottom - top + padding,
+      );
+      if (full > 0) setSnapExpanded(`${full}px`);
+      // Guard the ordering vaul's snap list depends on. A folded step that
+      // isn't shorter than the expanded one is a bad measurement, not a step.
+      if (toolRow > 0 && toolRow < full) setSnapFolded(`${toolRow}px`);
+    };
+    measure();
+    // The tool row is watched too: its tiles wrap differently per locale, and a
+    // folded snap measured against the wrong height clips them.
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    observer.observe(tools);
+    return () => observer.disconnect();
+  }, [sheetEl, bodyEl, toolsEl]);
+
+  // vaul's release rules are velocity-first: a slow drag only changes snap
+  // when it crosses the halfway point between snaps, and dismissal isn't a
+  // snap at all — so deliberate-but-slow gestures spring back. We decide from
+  // the finger instead: any downward travel past the tolerance folds an
+  // expanded sheet or closes a folded one, no matter how slow, and ending
+  // with the sheet dragged below half the folded height always closes. The
+  // fold is deferred a frame because vaul re-asserts the current snap
+  // synchronously during its own release handling.
+  const COLLAPSE_TOLERANCE_PX = 80;
+  const gestureStart = useRef<{
+    x: number;
+    y: number;
+    folded: boolean;
+  } | null>(null);
+  // Capture-phase press + window-level release so the gesture is judged even
+  // when a child swallows the events or iOS fires pointercancel mid-drag.
+  const onSheetPress = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary) return;
+    const sheet = e.currentTarget;
+    gestureStart.current = { x: e.pageX, y: e.pageY, folded };
+    const end = (ev: PointerEvent) => {
+      window.removeEventListener("pointerup", end, true);
+      window.removeEventListener("pointercancel", end, true);
+      const start = gestureStart.current;
+      gestureStart.current = null;
+      if (!start) return;
+      const pulledDown = ev.pageY - start.y;
+      const visible = window.innerHeight - sheet.getBoundingClientRect().top;
+      // Mostly-vertical guard keeps a limb drag from reading as a pull.
+      const deliberatePull =
+        pulledDown > COLLAPSE_TOLERANCE_PX &&
+        pulledDown > Math.abs(ev.pageX - start.x);
+      if (
+        visible < parseInt(snapFolded) / 2 ||
+        (start.folded && deliberatePull)
+      ) {
+        setOpen(false);
+      } else if (!start.folded && deliberatePull) {
+        requestAnimationFrame(() => setFolded(true));
+      }
+    };
+    window.addEventListener("pointerup", end, true);
+    window.addEventListener("pointercancel", end, true);
+  };
 
   // The rail button stays an on/off tool: pressing it arms posing and shows the
   // panel, and pressing it again while the panel is up disarms it. Pressing it
@@ -280,9 +416,21 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
       <Drawer
         open={open}
         onOpenChange={setOpen}
+        snapPoints={[snapFolded, snapExpanded]}
+        activeSnapPoint={snap}
+        setActiveSnapPoint={(value) => setFolded(value === snapFolded)}
         // Non-modal so the model stays draggable behind the sheet — posing is
         // the thing the sheet exists to configure.
         modal={false}
+        // A drag that starts with a slight upward wobble sets vaul's
+        // scroll-lock timestamp, which every later pointermove refreshes while
+        // the sheet sits at the top snap — eating the whole gesture. Nothing
+        // in this sheet scrolls, so the debounce protects nothing.
+        scrollLockTimeout={0}
+        // Without this, a fast flick down from expanded skips the folded snap
+        // and dismisses outright; sequential snapping makes the first collapse
+        // always land on the folded tool row.
+        snapToSequentialPoint
       >
         <DrawerTrigger asChild>
           <ToolButton
@@ -296,10 +444,24 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
           </ToolButton>
         </DrawerTrigger>
         <DrawerContent
-          className="mx-auto max-w-md select-none"
+          ref={setSheetEl}
+          // Full height on purpose, even though the panel is short: vaul snaps
+          // by translating the sheet down by (viewport − snap height), which
+          // only leaves the snap height on screen if the sheet is as tall as
+          // the viewport. A content-height sheet gets pushed clean off screen
+          // the moment it folds. What the user sees is still panel-sized —
+          // the snap decides that, and everything past it sits below the fold.
+          //
+          // dvh, not vh: that offset is computed from window.innerHeight, and
+          // on mobile web a visible URL bar makes 100vh the taller of the two.
+          // The sheet would then hang lower than vaul thinks and the bottom of
+          // the panel — resets and safe-area padding — would fall off screen.
+          className="mx-auto max-w-md select-none data-[vaul-drawer-direction=bottom]:h-dvh data-[vaul-drawer-direction=bottom]:max-h-none"
           style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+          onPointerDownCapture={onSheetPress}
         >
           <div
+            ref={setBodyEl}
             className="touch-none px-[18px] pt-3"
             style={{
               paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1.5rem)",
@@ -309,18 +471,46 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
               <DrawerTitle className="text-[17px] font-bold tracking-tight">
                 {dict.toolbar.poseMode}
               </DrawerTitle>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label={dict.common?.close ?? "Close"}
-                className="flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-[11px] bg-black/[0.05] text-neutral-500 transition-colors hover:bg-black/[0.09] dark:bg-white/[0.07] dark:text-neutral-400 dark:hover:bg-white/[0.12]"
-              >
-                <Close className="h-[18px] w-[18px]" />
-              </button>
+              <div className="flex items-center gap-[9px]">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(!expanded)}
+                  aria-expanded={expanded}
+                  aria-label={dict.common?.settings ?? "Settings"}
+                  className="flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-[11px] bg-black/[0.05] text-neutral-500 transition-colors hover:bg-black/[0.09] dark:bg-white/[0.07] dark:text-neutral-400 dark:hover:bg-white/[0.12]"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.1"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="transition-transform duration-300"
+                    style={{
+                      transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+                    }}
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label={dict.common?.close ?? "Close"}
+                  className="flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-[11px] bg-black/[0.05] text-neutral-500 transition-colors hover:bg-black/[0.09] dark:bg-white/[0.07] dark:text-neutral-400 dark:hover:bg-white/[0.12]"
+                >
+                  <Close className="h-[18px] w-[18px]" />
+                </button>
+              </div>
             </div>
             <PosePanel
               touch
               armed={poseMode}
+              expanded={expanded}
+              toolsRef={setToolsEl}
               onResetPose={onResetPose}
               onResetTransform={onResetTransform}
             />
@@ -375,14 +565,6 @@ const PoseFlyout: React.FC<PoseFlyoutProps> = ({
               align="start"
               sideOffset={12}
               collisionPadding={12}
-              // Posing happens on the canvas, so a press there must not close
-              // the panel the user is posing from. Presses anywhere else still
-              // dismiss it, the way every other popover in the rail behaves.
-              onPointerDownOutside={(e) => {
-                if ((e.target as HTMLElement | null)?.tagName === "CANVAS") {
-                  e.preventDefault();
-                }
-              }}
               asChild
             >
               <motion.div
