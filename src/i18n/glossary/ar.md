@@ -147,7 +147,7 @@ The Reference panel lets the user import photos/artwork and tap them to sample c
 | **Cancel** | إلغاء | Current common.cancel = "إلغاء". Matches. |
 | **Reset** | إعادة تعيين | Current common.reset = "إعادة تعيين". Matches. |
 | **Upload** | رفع | Current common.upload = "رفع". Matches. |
-| **Download** | تنزيل | Current recorder.download and library.exportSkin = "تنزيل". Matches. Keep تنزيل for Download, distinct from تصدير (Export). |
+| **Download** | تنزيل <br>*(نزّل — imperative)* | Current recorder.download and library.exportSkin = "تنزيل". Matches. Keep تنزيل for Download, distinct from تصدير (Export). Imperative form is نزّل (freeAppBanner.description). Flag: promoBanner.description still uses حمّله — same meaning, but it is drift from the تنزيل root; prefer نزّل in new strings. |
 | **Import** | استيراد | Current importDialog.import = "استيراد". Matches. |
 | **Export** <br><sub>Used for "export skin"</sub> | تصدير | Current saveImage.cannotExport* uses "تصدير". Matches. Note library.exportSkin is labeled تنزيل because its English is "Download" there — keep Export = تصدير distinct from Download = تنزيل. |
 | **Screenshot** | لقطة شاشة | Current toolbar.screenshot = "لقطة شاشة". Matches. |
@@ -164,6 +164,20 @@ The Reference panel lets the user import photos/artwork and tap them to sample c
 | **Open source** <br><sub>`home.openSourceHeading`</sub> | مفتوح المصدر | Standard Arabic dev-community term. The heading starts with the Latin brand name, so it takes a leading RLM (`‏MineSkin مفتوح المصدر.`) like promoBanner.title. |
 | **Star** <br><sub>GitHub star action — label on the button that opens the repo (`home.githubStar`)</sub> | أضف نجمة <br>*(نجمة)* | GitHub's star, not the astronomy sense — نجمة is what Arabic-speaking developers say ("أضف نجمة للمستودع"). Imperative + noun, matching the imperative action-label register. Do NOT use نجم، كوكب، تمييز بنجمة، or المفضلة. |
 | **Stargazers** <br><sub>Accessible label on the star-count link (`home.githubStargazers`)</sub> | عدد النجوم على GitHub | The link shows a count, so the count reading (عدد النجوم) is clearer in Arabic than a coined agent noun. Keep نجوم as the plural of the same نجمة term above; do not invent مُنجِّمون/المراقبون. |
+
+### Store & pricing
+
+The store banners (`promoBanner`, `freeAppBanner`) advertise the iOS/Android app on the App Store and Google Play. Both are short marketing blocks in the same voice: badge + title + one-sentence description + imperative CTA.
+
+| English | ar | Notes |
+|---|---|---|
+| **Free** <br><sub>Zero price (`promoBanner.title`, `freeAppBanner.title`, `.description`, `.cta`)</sub> | مجاني <br>*(مجانًا — adverbial "for free")* | Adjective مجاني when it describes the app (‏MineSkin PRO مجاني)، adverbial مجانًا after a verb (نزّله مجانًا، احصل عليه مجانًا). Do NOT use بالمجان or حر (= free as in freedom, which belongs to مفتوح المصدر). |
+| **Now free** <br><sub>Badge on the permanently-free banner (`freeAppBanner.badge`)</sub> | مجاني الآن | Deliberately contrasts with promoBanner.badge = لفترة محدودة (Limited time): this banner is a permanent price change, not a sale, so never reuse لفترة محدودة or add عرض/تخفيض here. |
+| **Dismiss** <br><sub>Closing a banner (`promoBanner.dismiss`, `freeAppBanner.dismiss`)</sub> | إغلاق | Matches the existing promoBanner value. Keep distinct from إلغاء (Cancel) and تجاهل (Discard). |
+| **Free to download** <br><sub>The apps cost nothing to install (`home.appDescription`)</sub> | التنزيل مجاني | Nominal التنزيل مجاني for descriptive prose (the apps are free, no action asked), imperative نزّله مجانًا only in a CTA. Reuses Download = تنزيل and Free = مجاني; do NOT use التحميل or بالمجان. |
+| **No catch** <br><sub>Reassurance that "free" has no hidden condition (`home.supportDescription`)</sub> | ولا شروط خفية | Always paired with بلا تكلفة (no cost) as `بلا تكلفة ولا شروط خفية`. خفية (hidden) is what carries the "catch"; bare بدون شروط reads as "no terms/conditions" and is weaker. Do NOT use لا مقابل or بدون مقابل (they read as "nothing in return"). |
+| **Tip** <br><sub>A one-time voluntary payment to the developer (`home.supportTipText`, `home.supportDescription`)</sub> | مساهمة <br>*(ساهم — imperative)* | Noun مساهمة لمرة واحدة for "a one-time tip", imperative ساهم مرة واحدة for the CTA (matches the existing home.supportTipText). NOT إكرامية/بقشيش (restaurant gratuity) and NOT تبرع (charity donation). Distinct from Support = دعم below: مساهمة is the money, دعم is the relationship. |
+| **Support the project** <br><sub>Section badge and the "kept going by you" heading (`home.supportBadge`, `home.supportHeading2`)</sub> | ادعم المشروع / بدعمك | Root دعم is reserved for backing the project (ادعم المشروع، يستمر بدعمك) and must not be used for the app-store section — the apps are a free download, not a way to fund the project, so appHeading/appDescription deliberately avoid دعم entirely. Do NOT use رعاية (sponsorship) or مساندة. |
 
 ### Animation
 
@@ -255,6 +269,7 @@ Terms with known drift in the current file — keep these locked to the recommen
 - **Centre gizmo** → `المقبض عند مركز النموذج` under **Move**, `الحلقة عند مركز النموذج` under **Twist** (never `حلقة الصدر`), and **the whole skin** → `السكن بأكمله` (never `الجسم بأكمله`): the four pose hints once described a chest ring that leaned or turned the figure from the waist (`تُميل الجسم بأكمله`). That gizmo is gone — it now sits at the model's centre, attached to nothing, and translates (`تُحرّك`) or turns (`تُدير`) the whole skin, and double-clicking/double-tapping it resets that transform (لإعادته إلى المركز under Move, ليعود مواجهًا للأمام under Twist). The noun follows the English per tool, which is also why the click pronoun is masculine `عليه` in the Move strings and feminine `عليها` in the Twist ones — do not "fix" that mismatch. Any reappearance of الصدر or الجسم بأكمله is stale.
 - **Aim** → `التصويب` belongs to `reference.pickFromImage` ONLY: the pose hints no longer have a drag-to-aim gesture, so a limb-end being pushed along one axis is `إزاحة`, not `تصويب`. The `toolbar.poseMove` tile keeps the inherited label `تصويب`, which is now the one place in Posing where the word appears.
 - **Pose vs. Position** → `الوضعية` (joints) vs. `موضع النموذج` (whole model): the pose panel stacks `toolbar.resetPose` = إعادة تعيين الوضعية directly above `toolbar.resetPosition` = إعادة تعيين موضع النموذج. Both English labels start with "Reset" and both Arabic ones with إعادة تعيين, so the object is the only thing telling them apart — never shorten the second to إعادة تعيين الموضع/الوضع, which collapses into the first (same و-ض-ع root, and وضع is separately locked to *mode*).
+- **Download** → `نزّل` (imperative): promoBanner.description uses حمّله while freeAppBanner.description uses نزّل. Both read naturally, but تنزيل/نزّل is the canonical root (see Actions); use نزّل in new strings and switch promoBanner if it is ever re-edited.
 - **Tap** → `اضغط` (vs. Click → `انقر`): no drift left in the file — common.modeSwitchHintBody and colorPicker.tapToConfirm both use اضغط, and انقر is reserved for mouse clicks. Listed here only because the two verbs are easy to re-conflate: `reference.panHintTouch`/`panHintMouse` are the same English sentence differing solely by this verb, so collapsing them into one word silently breaks the touch/mouse distinction.
 
 ---
