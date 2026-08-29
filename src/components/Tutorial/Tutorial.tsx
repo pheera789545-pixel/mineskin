@@ -228,7 +228,24 @@ const Tutorial: React.FC = () => {
               </svg>
             </motion.div>
           </Dialog.Overlay>
-          <Dialog.Content asChild>
+          {/*
+            Radix traps focus inside modal Dialog.Content. Here the content is
+            a framer-motion element that animates in from `opacity: 0` and is
+            re-keyed per step by `AnimatePresence mode="wait"`, so at mount it
+            is not yet focusable. WKWebView refuses to focus it, fires
+            focusout, FocusScope refocuses, and handleFocusIn/handleFocusOut
+            bounce until the stack blows — a RangeError thrown from a native
+            focus handler, outside React's commit path, so `error.tsx` never
+            renders and the app goes white on first launch (Sentry
+            MINESKIN-7E, iOS WKWebView). Declining the auto-focus on both ends
+            breaks the loop; the tutorial wants the canvas behind it usable
+            anyway.
+          */}
+          <Dialog.Content
+            asChild
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
             <motion.div
               ref={tooltipRef}
               className="absolute max-w-md w-full min-w-0 bg-neutral-50 dark:bg-neutral-800 border-neutral-300 dark:border-gray-transparent dark:border-neutral-700 p-5 shadow-lg rounded-lg "
