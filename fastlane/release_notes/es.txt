@@ -1,6 +1,1 @@
-Novedad: las poses.
-
-- Arrastra una extremidad para colocar su punta en su sitio o girarla sobre uno de sus ejes.
-- Arrastra el torso para mover o girar toda la skin.
-- Restablece la pose y la posición por separado, cuando quieras.
-- Corrección de errores y pequeñas mejoras.
+Corrección de errores y mejoras.
