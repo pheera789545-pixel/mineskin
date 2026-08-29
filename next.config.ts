@@ -1,17 +1,5 @@
 import { withSentryConfig } from "@sentry/nextjs";
-import withSerwistInit from "@serwist/next";
 import type { NextConfig } from "next";
-
-const revision = crypto.randomUUID();
-
-const withSerwist = withSerwistInit({
-  cacheOnNavigation: true,
-  swSrc: "src/sw.ts",
-  swDest: "public/sw.js",
-  additionalPrecacheEntries: [{ url: "/en/~offline", revision }],
-  register: true,
-  disable: process.env.NODE_ENV !== "production",
-});
 
 // Capacitor builds need a fully static export (`out/` directory consumed by `cap sync`).
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === "true";
@@ -24,7 +12,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["192.168.68.51"],
 };
 
-export default withSentryConfig(withSerwist(nextConfig), {
+export default withSentryConfig(nextConfig, {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
   org: process.env.SENTRY_ORG,
