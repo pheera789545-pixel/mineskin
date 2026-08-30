@@ -1,9 +1,24 @@
-import { M44, multiplyM44, scaleM44, translateM44 } from "./maths";
+import { M44, multiplyM44, scaleM44, translateM44, V3 } from "./maths";
 import { Mesh, MeshGroup, MinecraftPart } from "./mesh";
 import { MinecraftSkinMaterial } from "./MeshMaterial";
 import type { Layers, Parts, RendererStore } from "../store";
 
 const Z_FIGHTING_OFFSET = 0.01;
+
+/**
+ * Where an arm hinges when it swings: the shoulder, at the top of the arm and
+ * one unit in from the seam where it meets the torso — the point Minecraft
+ * itself rotates an arm about. The torso runs from x -4 to x 4, so the seam is
+ * at ±4 and the shoulder sits just outside it; the arm runs from y -6 to y 6,
+ * so y 4 is two units down from the top, keeping the corner buried in the body
+ * rather than perched on it.
+ *
+ * The arm's twist keeps the plain `jointPosition` at the centre of its top
+ * face, because a roll has to spin the arm where it stands rather than swing it
+ * around the torso. See `MinecraftPart.swingPivot`.
+ */
+const LEFT_SHOULDER: V3 = [-5, 4, 0];
+const RIGHT_SHOULDER: V3 = [5, 4, 0];
 
 /**
  * Generates a rounded triangle on the XZ plane at a given Y level.
@@ -435,6 +450,27 @@ export class MinecraftSkin extends MeshGroup {
       ps,
     );
     transparentGroup.addMesh(mesh.overlayRightArm);
+
+    // Both arm variants and both layers hinge on the same shoulder: it is
+    // pinned to the torso, not to the arm's own width, so slim and wide share
+    // it. Overlay shells are scaled about their arm's centre, which leaves the
+    // shoulder where the base layer has it, so they stay concentric.
+    for (const arm of [
+      mesh.baseLeftArm,
+      mesh.overlayLeftArm,
+      mesh.baseLeftSlimArm,
+      mesh.overlayLeftSlimArm,
+    ]) {
+      arm.swingPivot = LEFT_SHOULDER;
+    }
+    for (const arm of [
+      mesh.baseRightArm,
+      mesh.overlayRightArm,
+      mesh.baseRightSlimArm,
+      mesh.overlayRightSlimArm,
+    ]) {
+      arm.swingPivot = RIGHT_SHOULDER;
+    }
 
     mesh.baseLeftSlimArm.visible = isPocket;
     mesh.baseRightSlimArm.visible = isPocket;

@@ -20,6 +20,7 @@ import {
   Quat,
   quatFromAxisAngle,
   quatAngle,
+  rotateV3ByQuat,
   swingTwistDecompose,
 } from "./quaternion";
 
@@ -225,9 +226,31 @@ export function resolvePosePartMesh(
   }
 }
 
-/** The point a limb turns about, in the space its rotation acts in. */
+/** The point a limb's twist turns about, in the space its rotation acts in. */
 export function getPosePivot(mesh: MinecraftPart): V3 {
   return mesh.jointPosition;
+}
+
+/**
+ * The point a limb's *swing* turns about — the one a drag aims against and the
+ * gizmo hangs off.
+ *
+ * For an arm this is the shoulder, up at the top of the box and in against the
+ * torso, rather than the centre of the arm's own top face: swinging about the
+ * face centre lifts the arm clear of the body, and the shoulder is where the
+ * hinge actually reads. Every other part turns about its plain joint, and for
+ * those this is the same point. See `MinecraftPart.swingPivot`, which is what
+ * splits the two apart when they differ.
+ */
+export function getPoseSwingPivot(mesh: MinecraftPart): V3 {
+  return mesh.swingPivot ?? mesh.jointPosition;
+}
+
+/** Swing pivot minus joint: zero for every part but the arms. */
+function getSwingPivotOffset(mesh: MinecraftPart): V3 {
+  const joint = getPosePivot(mesh);
+  const pivot = getPoseSwingPivot(mesh);
+  return [pivot[0] - joint[0], pivot[1] - joint[1], pivot[2] - joint[2]];
 }
 
 /**
@@ -275,6 +298,88 @@ export function getPartTwistCenterOffset(
     (min[1] + max[1]) / 2 - pivot[1],
     (min[2] + max[2]) / 2 - pivot[2],
   ];
+}
+
+/**
+ * Re-expresses a rest-space offset from the part's joint as an offset from its
+ * *swing* pivot, once the twist has been applied but before the swing is.
+ *
+ * This is the vector the swing turns, and so the `from` an aim solve maps onto
+ * whatever the pointer named. When the two pivots coincide — every part but an
+ * arm — the subtraction is a no-op and this is just the twisted rest offset.
+ */
+function aimVectorFromTwist(
+  mesh: MinecraftPart,
+  restFromJoint: V3,
+  twist: Quat,
+): V3 {
+  const offset = getSwingPivotOffset(mesh);
+  const twisted = rotateV3ByQuat(twist, restFromJoint);
+  return [
+    twisted[0] - offset[0],
+    twisted[1] - offset[1],
+    twisted[2] - offset[2],
+  ];
+}
+
+/**
+ * The vector a drag aims: swing pivot → the part's free end, at rest and under
+ * a twist held constant for the length of the drag. Sliding the end around
+ * turns this onto the target, which is exactly the part's swing.
+ */
+export function getSwingAimVector(
+  mesh: MinecraftPart,
+  part: PoseLimb,
+  twist: Quat,
+): V3 {
+  return aimVectorFromTwist(mesh, getPartRestOffset(mesh, part), twist);
+}
+
+/**
+ * Carries a rest-space offset from the joint through a whole pose and hands
+ * back where it lands, measured from the swing pivot — so a caller adds it to
+ * {@link getPoseSwingPivot} to get the posed point.
+ *
+ * The pose is split the same way the mesh splits it: the twist turns the offset
+ * about the joint, the swing turns what is left about the swing pivot. With one
+ * pivot this collapses to rotating the offset by the pose outright.
+ */
+function posedOffsetFromSwingPivot(
+  mesh: MinecraftPart,
+  part: PoseLimb,
+  rotation: Quat,
+  restFromJoint: V3,
+): V3 {
+  const { swing, twist } = swingTwistDecompose(rotation, TWIST_AXIS[part]);
+  return rotateV3ByQuat(swing, aimVectorFromTwist(mesh, restFromJoint, twist));
+}
+
+/** Swing pivot → the part's free end under a pose. */
+export function getPosedTipOffset(
+  mesh: MinecraftPart,
+  part: PoseLimb,
+  rotation: Quat,
+): V3 {
+  return posedOffsetFromSwingPivot(
+    mesh,
+    part,
+    rotation,
+    getPartRestOffset(mesh, part),
+  );
+}
+
+/** Swing pivot → the point the part's twist rings are drawn around. */
+export function getPosedTwistCenterOffset(
+  mesh: MinecraftPart,
+  part: PoseLimb,
+  rotation: Quat,
+): V3 {
+  return posedOffsetFromSwingPivot(
+    mesh,
+    part,
+    rotation,
+    getPartTwistCenterOffset(mesh, part),
+  );
 }
 
 /**

@@ -37,6 +37,7 @@ import {
 } from "./PoseGizmo";
 import {
   getPartTwistAxis,
+  getSwingAimVector,
   isPosePart,
   PoseLimb,
   PosePart,
@@ -46,8 +47,7 @@ import {
   multiplyQuat,
   Quat,
   quatFromAxisAngle,
-  quatFromUnitVectors,
-  rotateV3ByQuat,
+  swingFromUnitVectors,
   swingTwistDecompose,
 } from "./quaternion";
 import { computeRay } from "./rayTracing";
@@ -93,7 +93,7 @@ type AxisDrag = {
   startY: number;
   /** Drag direction, in the joint's parent space. */
   localAxis: V3;
-  /** The joint, in parent space: the fixed point the limb pivots about. */
+  /** The swing pivot, in parent space: the fixed point the limb hinges on. */
   jointLocal: V3;
   /** The limb's end when the drag began, in parent space; the line runs through it. */
   tipLocal: V3;
@@ -617,7 +617,9 @@ export class PoseInputManager {
 
     const rotation = this.renderer.poseSystem.getPartRotation(part);
     const { twist } = swingTwistDecompose(rotation, getPartTwistAxis(part));
-    const aimFrom = rotateV3ByQuat(twist, handle.restOffset);
+    // Measured from the swing pivot, not the joint the twist uses, so the arm
+    // is aimed as if hinged at the shoulder.
+    const aimFrom = getSwingAimVector(mesh, part, twist);
     if (Math.hypot(aimFrom[0], aimFrom[1], aimFrom[2]) < 1e-6) return null;
 
     return {
@@ -664,9 +666,14 @@ export class PoseInputManager {
     if (Math.hypot(target[0], target[1], target[2]) < 1e-6) return;
 
     const state = getRendererState();
+    // A pure swing, so that a part whose swing and twist hang off different
+    // pivots gets back exactly the two halves this solved for.
     this.renderer.poseSystem.setPartRotation(
       drag.part,
-      multiplyQuat(quatFromUnitVectors(drag.aimFrom, target), drag.twist),
+      multiplyQuat(
+        swingFromUnitVectors(drag.aimFrom, target, getPartTwistAxis(drag.part)),
+        drag.twist,
+      ),
       { snap: state.poseSnap, mirror: state.poseMirror },
     );
   }

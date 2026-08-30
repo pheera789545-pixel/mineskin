@@ -63,6 +63,49 @@ export function quatFromUnitVectors(from: V3, to: V3): Quat {
 }
 
 /**
+ * The rotation taking direction `from` onto direction `to` that carries no
+ * twist about `axis` — a pure swing, in the sense
+ * {@link swingTwistDecompose} means it.
+ *
+ * The shortest rotation is not always that. Its axis is perpendicular to
+ * `from`, so it is twist-free only while `from` lies along `axis` — true of a
+ * limb aimed from the centre of the end it hangs by, and not true of an arm
+ * aimed from its shoulder, which sits off to one side. Feeding that shortest
+ * rotation to a part whose swing and twist turn about different points leaves
+ * the leftover twist to be re-solved against the other pivot, and the hand
+ * lands somewhere other than where the drag pointed.
+ *
+ * Turning about an axis perpendicular to `axis` fixes the whole problem, and
+ * there is always one that works: a rotation preserves the component along its
+ * own axis, so the axis has to be perpendicular to `from - to` as well, which
+ * pins it down to their cross product.
+ */
+export function swingFromUnitVectors(from: V3, to: V3, axis: V3): Quat {
+  const a = normalize(from);
+  const b = normalize(to);
+  const u = normalize(axis);
+
+  // Along the twist axis the shortest rotation is already twist-free, and it
+  // is the better answer: it picks a sensible axis where this one degenerates.
+  if (Math.hypot(...cross(u, a)) < 1e-6) return quatFromUnitVectors(a, b);
+
+  const delta: V3 = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  let n = cross(u, delta);
+  // `from` and `to` apart only along the twist axis: every perpendicular axis
+  // preserves both components equally, so any of them will do.
+  if (Math.hypot(...n) < 1e-6) n = cross(u, a);
+  n = normalize(n);
+
+  // Both vectors keep the same component along `n`, so what is left of each is
+  // the same length and the sweep between those two is the turn.
+  const pa: V3 = [a[0] - dot(a, n) * n[0], a[1] - dot(a, n) * n[1], a[2] - dot(a, n) * n[2]];
+  const pb: V3 = [b[0] - dot(b, n) * n[0], b[1] - dot(b, n) * n[1], b[2] - dot(b, n) * n[2]];
+  if (Math.hypot(...pa) < 1e-6 || Math.hypot(...pb) < 1e-6) return identityQuat();
+
+  return quatFromAxisAngle(n, Math.atan2(dot(cross(pa, pb), n), dot(pa, pb)));
+}
+
+/**
  * Hamilton product. Follows the same convention as `multiplyM44`: the result
  * applies `b` first, then `a`.
  */

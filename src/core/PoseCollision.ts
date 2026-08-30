@@ -8,6 +8,7 @@ import {
   Quat,
   rotateV3ByQuat,
   slerpQuat,
+  swingTwistDecompose,
 } from "./quaternion";
 
 /**
@@ -142,10 +143,18 @@ type Obb = {
 };
 
 /**
+ * The long axis of every part, matching `LONG_AXIS` in `mesh` — the axis a pose
+ * is split about when the part swings and twists on different pivots.
+ */
+const LONG_AXIS: V3 = [0, 1, 0];
+
+/**
  * The box a part occupies at a given rotation, without touching the mesh.
  *
- * Mirrors `MinecraftPart.updateJointBasedTransform`: a local vertex `v` lands
- * at `position + joint + R · (scale · v − joint)`. Building it here rather than
+ * Mirrors `MinecraftPart.buildJointRotation`: a local vertex `v` lands at
+ * `position + pivot + swing · (twist · (scale · v − joint) − (pivot − joint))`,
+ * which for a part with no separate swing pivot is the plainer
+ * `position + joint + R · (scale · v − joint)`. Building it here rather than
  * writing the rotation to the mesh and reading its matrix back is what lets the
  * contact search try a dozen candidate rotations per pointer move without ever
  * making the renderer draw one of the rejected ones.
@@ -184,17 +193,24 @@ function buildObb(
   }
 
   const quat = rotation ?? identityQuat();
-  const offset = rotateV3ByQuat(quat, [
+  const pivot = mesh.swingPivot ?? joint;
+  const { swing, twist } = swingTwistDecompose(quat, LONG_AXIS);
+  const twisted = rotateV3ByQuat(twist, [
     center[0] - joint[0],
     center[1] - joint[1],
     center[2] - joint[2],
   ]);
+  const offset = rotateV3ByQuat(swing, [
+    twisted[0] - (pivot[0] - joint[0]),
+    twisted[1] - (pivot[1] - joint[1]),
+    twisted[2] - (pivot[2] - joint[2]),
+  ]);
 
   return {
     center: [
-      position[0] + joint[0] + offset[0],
-      position[1] + joint[1] + offset[1],
-      position[2] + joint[2] + offset[2],
+      position[0] + pivot[0] + offset[0],
+      position[1] + pivot[1] + offset[1],
+      position[2] + pivot[2] + offset[2],
     ],
     axes: [
       rotateV3ByQuat(quat, [1, 0, 0]),

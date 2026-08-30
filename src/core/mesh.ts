@@ -17,7 +17,7 @@ import {
   translateM44,
 } from "./maths";
 import { appendTriangleLine } from "./meshUtils";
-import { Quat, quatToM44 } from "./quaternion";
+import { Quat, quatToM44, swingTwistDecompose } from "./quaternion";
 
 type MeshMetadata = {
   [key: string]: string | number | boolean | Record<string, string | number>;
@@ -581,8 +581,16 @@ export class MeshGroup extends Base {
   }
 }
 
+/**
+ * The long axis of every part in this rig: each one is a box standing on end,
+ * with its joint at the centre of the face it hangs by. It is the axis a twist
+ * spins about, and it must stay in step with `TWIST_AXIS` in `PoseSystem`.
+ */
+const LONG_AXIS: V3 = [0, 1, 0];
+
 export class MinecraftPart extends MeshGroup {
   private _jointPosition: V3 = [0, 0, 0];
+  private _swingPivot: V3 | null = null;
   private _partRotation: V3 = [0, 0, 0];
   private _rotationQuat: Quat | null = null;
 
@@ -801,6 +809,36 @@ export class MinecraftPart extends MeshGroup {
   }
 
   /**
+   * A second pivot, for the *swing* half of a quaternion pose only.
+   *
+   * An arm is a box hanging off the side of the torso, and the point it
+   * visibly hinges on is the shoulder — up at the top of the box and in
+   * against the body — not the centre of its own top face. Swinging about the
+   * face centre lifts the whole arm away from the torso; swinging about the
+   * shoulder keeps it socketed, the way Minecraft itself rigs an arm.
+   *
+   * The twist cannot share that point. A roll about a line running through the
+   * shoulder would carry the arm around the torso instead of spinning it where
+   * it stands, so the two halves keep their own pivots: the pose splits into
+   * swing and twist about {@link LONG_AXIS}, and each half hangs off its own.
+   *
+   *     T(swing pivot) · swing · T(-swing pivot) · T(joint) · twist · T(-joint)
+   *
+   * Left null — everything but the arms — that collapses back to the single
+   * rotation about `jointPosition` it has always been. So does the Euler path,
+   * which ignores this outright: an animation clip playing on an unposed model
+   * turns exactly as before.
+   */
+  get swingPivot(): V3 | null {
+    return this._swingPivot ? ([...this._swingPivot] as V3) : null;
+  }
+
+  set swingPivot(value: V3 | null) {
+    this._swingPivot = value ? ([...value] as V3) : null;
+    this.updateJointBasedTransform();
+  }
+
+  /**
    * Setting Euler angles drops any quaternion override, so the animation
    * system and look-at-cursor keep working exactly as before.
    */
@@ -846,36 +884,55 @@ export class MinecraftPart extends MeshGroup {
     return super.scale;
   }
 
+  /**
+   * The rotation, wrapped in the translations that carry it to whichever point
+   * it turns about: one pivot in the ordinary case, and two — a swing about
+   * {@link MinecraftPart.swingPivot} outside a twist about the joint — when the
+   * part has been given a separate swing pivot.
+   */
+  private buildJointRotation(): M44 {
+    const [jx, jy, jz] = this._jointPosition;
+    const toJoint = translateM44(jx, jy, jz);
+    const fromJoint = translateM44(-jx, -jy, -jz);
+
+    if (!this._rotationQuat) {
+      return multiplyM44(
+        toJoint,
+        rotateM44(
+          this._partRotation[0],
+          this._partRotation[1],
+          this._partRotation[2],
+        ),
+        fromJoint,
+      );
+    }
+
+    if (!this._swingPivot) {
+      return multiplyM44(toJoint, quatToM44(this._rotationQuat), fromJoint);
+    }
+
+    const [px, py, pz] = this._swingPivot;
+    const { swing, twist } = swingTwistDecompose(this._rotationQuat, LONG_AXIS);
+    return multiplyM44(
+      translateM44(px, py, pz),
+      quatToM44(swing),
+      translateM44(-px, -py, -pz),
+      toJoint,
+      quatToM44(twist),
+      fromJoint,
+    );
+  }
+
   private updateJointBasedTransform() {
     // For joint-based rotation, we need to:
     // 1. Translate to joint position
     // 2. Apply rotation
     // 3. Translate back
     // 4. Apply position and scale
-    
-    const jointTranslate = translateM44(
-      this._jointPosition[0],
-      this._jointPosition[1], 
-      this._jointPosition[2]
-    );
-    
-    const jointTranslateInverse = translateM44(
-      -this._jointPosition[0],
-      -this._jointPosition[1],
-      -this._jointPosition[2]
-    );
-    
-    const rotation = this._rotationQuat
-      ? quatToM44(this._rotationQuat)
-      : rotateM44(
-          this._partRotation[0],
-          this._partRotation[1],
-          this._partRotation[2]
-        );
 
     const currentPosition = super.position;
     const currentScale = super.scale;
-    
+
     const position = translateM44(
       currentPosition[0],
       currentPosition[1],
@@ -887,9 +944,7 @@ export class MinecraftPart extends MeshGroup {
     // Combine: Position * JointTranslate * Rotation * JointTranslateInverse * Scale
     const newMatrix = multiplyM44(
       position,
-      jointTranslate,
-      rotation,
-      jointTranslateInverse,
+      this.buildJointRotation(),
       scale
     );
 

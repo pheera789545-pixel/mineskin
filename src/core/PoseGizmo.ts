@@ -15,8 +15,9 @@ import type { MiSkiRenderer } from "./MiSkiRenderer";
 import { isModelMoveLocked } from "./modelTransform";
 import {
   getPartRestOffset,
-  getPartTwistCenterOffset,
-  getPosePivot,
+  getPoseSwingPivot,
+  getPosedTipOffset,
+  getPosedTwistCenterOffset,
   POSE_LIMBS,
   POSE_PARTS,
   PoseLimb,
@@ -52,7 +53,7 @@ type PoseHandleBase = {
  */
 export type LimbHandle = PoseHandleBase & {
   part: PoseLimb;
-  /** The fixed pivot: a shoulder, hip or the neck. */
+  /** The fixed pivot a swing turns about: a shoulder, hip or the neck. */
   joint: V3;
   /** Joint→tip at rest, in the part's local space. Drives the aim solve. */
   restOffset: V3;
@@ -383,11 +384,12 @@ export function computePoseHandles(renderer: MiSkiRenderer): PoseHandle[] {
     if (!space) continue;
     const parentMatrix = space.getTransformMatrix();
 
-    const jointLocal = getPosePivot(mesh);
+    const jointLocal = getPoseSwingPivot(mesh);
     const restOffset = getPartRestOffset(mesh, part);
-    const posedOffset = rotateV3ByQuat(
+    const posedOffset = getPosedTipOffset(
+      mesh,
+      part,
       renderer.poseSystem.getPartRotation(part),
-      restOffset,
     );
 
     const joint = multiplyM4V3(parentMatrix, jointLocal);
@@ -454,6 +456,7 @@ export function computeAxisHandles(
  */
 type LimbFrame = {
   part: PoseLimb;
+  /** The point the swing turns about, which for an arm is the shoulder. */
   jointLocal: V3;
   tipLocal: V3;
   restOffset: V3;
@@ -478,19 +481,16 @@ function computeLimbFrame(
   if (!space) return null;
   const parentMatrix = space.getTransformMatrix();
 
-  const jointLocal = getPosePivot(mesh);
+  const jointLocal = getPoseSwingPivot(mesh);
   const restOffset = getPartRestOffset(mesh, part);
   const rotation = renderer.poseSystem.getPartRotation(part);
-  const posedOffset = rotateV3ByQuat(rotation, restOffset);
+  const posedOffset = getPosedTipOffset(mesh, part, rotation);
   const tipLocal: V3 = [
     jointLocal[0] + posedOffset[0],
     jointLocal[1] + posedOffset[1],
     jointLocal[2] + posedOffset[2],
   ];
-  const centerOffset = rotateV3ByQuat(
-    rotation,
-    getPartTwistCenterOffset(mesh, part),
-  );
+  const centerOffset = getPosedTwistCenterOffset(mesh, part, rotation);
   const twistCenterLocal: V3 = [
     jointLocal[0] + centerOffset[0],
     jointLocal[1] + centerOffset[1],
