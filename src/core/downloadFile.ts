@@ -40,28 +40,31 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
-// /**
-//  * Detect known in-app browsers (embedded WKWebViews). These hijack or strip the
-//  * normal save affordances: e.g. the Google app replaces WebKit's long-press
-//  * image menu with its own (Search / Translate / Save-bookmark) sheet, so there
-//  * is no "Add to Photos", no file share, and no working <a download>. There is
-//  * no reliable save route, so we warn the user instead.
-//  */
-// function isInAppBrowser(): boolean {
-//   const ua = navigator.userAgent;
-//   return (
-//     / GSA\//.test(ua) || // Google app
-//     /FBAN|FBAV|FB_IAB/.test(ua) || // Facebook / Messenger
-//     /Instagram/.test(ua) ||
-//     /\bLine\//.test(ua) ||
-//     /Twitter/.test(ua) ||
-//     /MicroMessenger/.test(ua) || // WeChat
-//     /(BytedanceWebview|musical_ly|TikTok)/.test(ua) ||
-//     /Snapchat/.test(ua) ||
-//     /LinkedInApp/.test(ua) ||
-//     /Pinterest/.test(ua)
-//   );
-// }
+/**
+ * Android browsers that silently swallow blob-anchor downloads. Tencent's X5
+ * kernel (WeChat, QQ, QQ Browser), UC, and most social in-app WebViews route
+ * `<a download>` through the host app's download listener, which can't fetch
+ * a `blob:` URL — the tap does nothing and the user thinks export is broken.
+ * They do keep the long-press "Save image" menu, so we fall back to that.
+ */
+function isAndroidInAppBrowser(): boolean {
+  const ua = navigator.userAgent;
+  if (!/Android/i.test(ua)) return false;
+  return (
+    /MicroMessenger/i.test(ua) || // WeChat
+    /MQQBrowser|QQ\//.test(ua) || // QQ Browser / QQ app (X5)
+    /UCBrowser/i.test(ua) ||
+    /FBAN|FBAV|FB_IAB/.test(ua) || // Facebook / Messenger
+    /Instagram/.test(ua) ||
+    /\bLine\//.test(ua) ||
+    /Twitter/.test(ua) ||
+    /(BytedanceWebview|musical_ly|TikTok)/.test(ua) ||
+    /Snapchat/.test(ua) ||
+    /LinkedInApp/.test(ua) ||
+    /Pinterest/.test(ua) ||
+    /; wv\)/.test(ua) // generic Android WebView
+  );
+}
 
 function makeOverlay(label: string): HTMLDivElement {
   const overlay = document.createElement("div");
@@ -151,27 +154,17 @@ function presentOverlay(overlay: HTMLDivElement): () => void {
   return close;
 }
 
-// /**
-//  * Fallback for iOS in-app browsers (Google app, Instagram, …): they cannot save
-//  * files by any means, so warn the user rather than silently doing nothing.
-//  */
-// function showCannotExportWarning(labels: SaveImageLabels): void {
-//   const overlay = makeOverlay(labels.cannotExportTitle);
-//   const title = makeTitle(labels.cannotExportTitle);
-//   const message = makeInstruction(labels.cannotExportMessage);
-//   const doneBtn = makeButton(labels.done);
-
-//   const close = presentOverlay(overlay);
-//   doneBtn.addEventListener("click", close);
-
-//   overlay.append(title, message, doneBtn);
-// }
-
 /**
- * Fallback for iOS browsers that render the page directly (real Safari without
- * file-share support): the WebKit long-press "Save Image" callout works here.
+ * Fallback for browsers that can't hand us a file download but still render
+ * the page directly: iOS Safari without file-share support, and Android
+ * in-app browsers. Both keep the long-press "Save image" menu on an <img>.
+ * Resolves once the user dismisses the sheet, so callers can follow up
+ * (toasts, analytics) without racing the overlay.
  */
-function showLongPressSheet(dataUrl: string, labels: SaveImageLabels): void {
+function showLongPressSheet(
+  dataUrl: string,
+  labels: SaveImageLabels,
+): Promise<void> {
   const overlay = makeOverlay(labels.title);
   const title = makeTitle(labels.title);
 
@@ -196,10 +189,21 @@ function showLongPressSheet(dataUrl: string, labels: SaveImageLabels): void {
   const instruction = makeInstruction(labels.instruction);
   const doneBtn = makeButton(labels.done);
 
-  const close = presentOverlay(overlay);
-  doneBtn.addEventListener("click", close);
+  return new Promise((resolve) => {
+    const close = presentOverlay(overlay);
+    // presentOverlay wires backdrop taps to `close`; observe removal so every
+    // dismissal path settles the promise.
+    const observer = new MutationObserver(() => {
+      if (!overlay.isConnected) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    observer.observe(document.body, { childList: true });
+    doneBtn.addEventListener("click", close);
 
-  overlay.append(title, img, instruction, doneBtn);
+    overlay.append(title, img, instruction, doneBtn);
+  });
 }
 
 export async function downloadFile(
@@ -221,14 +225,19 @@ export async function downloadFile(
     const shared = await tryWebShare(file);
     if (shared !== "unavailable") return shared;
 
-    // In-app browsers (Google app, Instagram, …) can't save files by any
-    // means — warn the user. Other iOS browsers that lack file-share still
-    // support the long-press "Save Image" callout.
-    // if (isInAppBrowser()) {
-    //   showCannotExportWarning(labels);
-    // } else {
-    showLongPressSheet(dataUrl, labels);
-    // }
+    // iOS browsers that lack file-share still support the long-press
+    // "Save Image" callout.
+    await showLongPressSheet(dataUrl, labels);
+    return "downloaded";
+  }
+
+  // Android in-app browsers (WeChat, QQ, UC, social apps, …) drop blob
+  // downloads on the floor. Try the share sheet, then the long-press menu.
+  if (isAndroidInAppBrowser()) {
+    const file = new File([blob], filename, { type: blob.type });
+    const shared = await tryWebShare(file);
+    if (shared !== "unavailable") return shared;
+    await showLongPressSheet(dataUrl, labels);
     return "downloaded";
   }
 

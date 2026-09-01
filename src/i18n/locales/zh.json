@@ -445,7 +445,7 @@
   },
   "saveImage": {
     "title": "保存图片",
-    "instruction": "长按图片，然后点按“存储图像”或“添加到照片”。",
+    "instruction": "长按图片，然后选择“保存图片”、“存储图像”或“添加到照片”。",
     "done": "完成",
     "cannotExportTitle": "无法导出皮肤",
     "cannotExportMessage": "无法从此浏览器导出皮肤。"
