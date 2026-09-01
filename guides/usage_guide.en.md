@@ -23,6 +23,7 @@ Either way, the first time you open **Editor** mode an interactive tutorial walk
 2. Pick a color, then choose a brush from the **Brushes** button in the left toolbar.
 3. Paint directly on the 3D model.
 4. Your work saves to the library automatically. To get a PNG out, open the **Library** and choose **Download** on the skin.
+5. Upload that PNG to Minecraft — see [Use Your Skin in Minecraft](#use-your-skin-in-minecraft).
 
 ---
 
@@ -63,12 +64,41 @@ Accepted uploads are PNGs sized **64×64**, **64×32** (old format), or **128×1
 Each skin in the library can be:
 
 - **Renamed** — the name is also used for exported files
-- **Downloaded** — saves a PNG ready to upload to Minecraft
+- **Downloaded** — saves a PNG ready to upload to Minecraft (see [Use Your Skin in Minecraft](#use-your-skin-in-minecraft))
 - **Deleted** — deleting the last skin leaves you with a fresh empty one
 
 ### Where Skins Are Stored
 
 Skins live **locally on your device**, and every edit is saved automatically as you paint — so your work survives a reload. Because the storage is local, clearing your browser or app data will remove them. Download anything you don't want to lose.
+
+---
+
+## Use Your Skin in Minecraft
+
+Downloading a skin saves a PNG on your device — nothing more. Minecraft doesn't look at that file until you upload it, so a skin that "doesn't show up in-game" has almost always just not been uploaded yet.
+
+### Java Edition
+
+1. Open the **Minecraft Launcher** and go to the **Skins** tab.
+2. Choose **New skin**, then **Browse** and pick the PNG you downloaded.
+3. Pick the arm style that matches the skin: **Classic** for 4px arms, **Slim** for 3px arms (the **Slim mode** setting in MineSkin PRO). A mismatch shows up as stray or missing pixels on the arms.
+4. **Save & use**. The skin appears the next time you join a world or server.
+
+You can also upload it from your profile on minecraft.net, under **Skin**.
+
+### Bedrock Edition
+
+1. From the main menu, open the **Dressing Room** below your character.
+2. Choose **Edit Character**, then on the **Owned** tab pick **Import** and **Choose New Skin**.
+3. Select the PNG, then choose the matching **Classic** or **Slim** model.
+4. Confirm. Your character updates right away.
+
+### If it still doesn't show
+
+- **Wrong arm style** — upload again with the other model.
+- **128×128 skins don't work on Java Edition.** Turn off **Double resolution** in **Settings → Actions** and download the skin again. Bedrock accepts 128×128.
+- **Servers may not show custom skins.** Some servers run their own skin system, and others cache skins for a while. Check in a single-player world first, or restart the game.
+- **Third-party launchers.** Skins belong to your Microsoft account, so uploading through the official Launcher or minecraft.net also works when you play through another launcher, as long as it signs in to that account.
 
 ---
 

@@ -23,6 +23,7 @@ En cualquier caso, la primera vez que entres en el modo **Editor**, un tutorial 
 2. Elige un color y luego elige un pincel en el botón **Pinceles** de la barra de herramientas izquierda.
 3. Pinta directamente sobre el modelo 3D.
 4. Tu trabajo se guarda solo en la biblioteca. Para obtener el PNG, abre la **Biblioteca** y pulsa **Descargar** en la skin.
+5. Sube ese PNG a Minecraft: consulta [Usa tu skin en Minecraft](#usa-tu-skin-en-minecraft).
 
 ---
 
@@ -63,12 +64,41 @@ Se aceptan PNG de **64×64**, **64×32** (formato antiguo) o **128×128**.
 Cada skin de la biblioteca se puede:
 
 - **Renombrar**: el nombre también se usa para los archivos exportados
-- **Descargar**: guarda un PNG listo para subir a Minecraft
+- **Descargar**: guarda un PNG listo para subir a Minecraft (consulta [Usa tu skin en Minecraft](#usa-tu-skin-en-minecraft))
 - **Eliminar**: si borras la última skin, te quedará una nueva vacía
 
 ### Dónde se guardan las skins
 
 Las skins se guardan **localmente en tu dispositivo**, y cada cambio se guarda automáticamente mientras pintas, así que tu trabajo sobrevive a una recarga. Como el almacenamiento es local, si borras los datos del navegador o de la app, desaparecerán. Descarga todo lo que no quieras perder.
+
+---
+
+## Usa tu skin en Minecraft
+
+Descargar una skin guarda un PNG en tu dispositivo, nada más. Minecraft no mira ese archivo hasta que lo subes, así que una skin que «no aparece en el juego» casi siempre es una skin que todavía no se ha subido.
+
+### Java Edition
+
+1. Abre el **Minecraft Launcher** y ve a la pestaña **Aspectos**.
+2. Elige **Nuevo aspecto**, luego **Examinar** y selecciona el PNG que descargaste.
+3. Elige el estilo de brazos que corresponda a la skin: **Clásico** para brazos de 4 px, **Delgado** para brazos de 3 px (la opción **Modo delgado** de MineSkin PRO). Si no coinciden, verás píxeles sueltos o faltantes en los brazos.
+4. **Guardar y usar**. La skin aparecerá la próxima vez que entres a un mundo o a un servidor.
+
+También puedes subirla desde tu perfil en minecraft.net, en el apartado **Skin**.
+
+### Bedrock Edition
+
+1. Desde el menú principal, abre el **Vestidor**, debajo de tu personaje.
+2. Elige **Editar personaje** y, en la pestaña **Adquiridos**, pulsa **Importar** y luego **Elegir nuevo aspecto**.
+3. Selecciona el PNG y elige el modelo que corresponda: **Clásico** o **Delgado**.
+4. Confirma. Tu personaje se actualiza al instante.
+
+### Si aun así no aparece
+
+- **Estilo de brazos equivocado**: vuelve a subirla con el otro modelo.
+- **Las skins de 128×128 no funcionan en Java Edition.** Desactiva **Doble resolución** en **Configuración → Acciones** y vuelve a descargar la skin. Bedrock sí acepta 128×128.
+- **Puede que los servidores no muestren skins personalizadas.** Algunos servidores usan su propio sistema de skins y otros guardan las skins en caché durante un tiempo. Compruébalo primero en un mundo de un solo jugador o reinicia el juego.
+- **Launchers de terceros.** Las skins pertenecen a tu cuenta de Microsoft, así que subirla desde el Launcher oficial o desde minecraft.net también funciona cuando juegas con otro launcher, siempre que inicie sesión con esa cuenta.
 
 ---
 

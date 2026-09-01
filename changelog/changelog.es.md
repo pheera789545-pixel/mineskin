@@ -1,3 +1,8 @@
+## 2026-09-01
+
+- Exporta skins desde WeChat, QQ y otros navegadores integrados de Android, que antes se tragaban la descarga sin avisar.
+- Añadida la sección «Usa tu skin en Minecraft» a la guía de uso: cómo subir el PNG en el Launcher o en el Vestidor, y qué revisar cuando no aparece en el juego.
+
 ## 2026-08-27
 
 - Posa el modelo a mano: arrastra una extremidad para llevar su punta a su sitio o gírala sobre uno de sus ejes.

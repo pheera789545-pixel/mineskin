@@ -1,3 +1,8 @@
+## 2026-09-01
+
+- Export skins from WeChat, QQ, and other Android in-app browsers, which used to swallow the download silently.
+- Add a "Use Your Skin in Minecraft" section to the usage guide: uploading the PNG in the Launcher or the Dressing Room, and what to check when it doesn't show in-game.
+
 ## 2026-08-27
 
 - Pose the model by hand: drag a limb to swing its end into place, or twist it around any of its three axes.

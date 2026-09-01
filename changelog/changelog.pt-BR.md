@@ -1,3 +1,8 @@
+## 2026-09-01
+
+- Exporte skins pelo WeChat, QQ e outros navegadores internos de apps no Android, que antes engoliam o download em silêncio.
+- Adiciona a seção "Usar sua Skin no Minecraft" ao guia de uso: como enviar o PNG pelo Launcher ou pelo Vestiário, e o que conferir quando a skin não aparece no jogo.
+
 ## 2026-08-27
 
 - Posicione o modelo na mão: arraste um membro para levar a ponta dele ao lugar, ou torça o membro em um eixo.

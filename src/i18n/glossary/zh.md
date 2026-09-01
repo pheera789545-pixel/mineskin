@@ -173,6 +173,20 @@ Second person: use the polite 您 consistently for the user; reserve 你 only in
 | **Get it free** <br><sub>Banner CTA (promoBanner.cta, freeAppBanner.cta)</sub> | 免费获取 | One rendering shared by both banners; keep them identical so the CTA reads the same wherever it appears. |
 | **Dismiss** <br><sub>Banner close button (promoBanner.dismiss, freeAppBanner.dismiss)</sub> | 关闭 | Same as common.close; do not use 忽略 or 不再显示. |
 
+### Exporting to Minecraft
+
+| English | zh | Notes |
+|---|---|---|
+| **Launcher** <br><sub>The official Minecraft Launcher (Java Edition) — usage guide</sub> | 启动器 <br>*(Minecraft 启动器)* | Official zh-CN name of the Minecraft Launcher. Bare 启动器 in short copy, full **Minecraft 启动器** the first time the guide names it. 官方启动器 for "the official Launcher" when contrasted with third-party ones. Do not use 登录器 (dated, community slang). |
+| **Third-party launchers** <br><sub>HMCL, PCL etc. — usage guide</sub> | 第三方启动器 | Keep the launcher names HMCL / PCL verbatim in Latin, e.g. 第三方启动器（如 HMCL、PCL）. |
+| **China edition** <br><sub>The NetEase-published Minecraft 中国版 (own account and skin system) — usage guide only</sub> | 中国版（网易） | Only mentioned to say the guide steps do not apply there; never describe its skin flow in detail (it changes and differs between PC and mobile). 网易启动器 for its launcher. |
+| **Dressing Room** <br><sub>Bedrock Edition's character/skin screen — usage guide</sub> | 更衣室 | Official zh-CN Bedrock UI name. Its sub-screens follow the official UI too: **Edit Character** = 编辑角色, **Owned** (tab) = 已拥有, **Import** = 导入, **Choose New Skin** = 选择新皮肤. |
+| **Bedrock Edition** <br><sub>Minecraft: Bedrock Edition (product name)</sub> | 基岩版 | Official zh-CN edition name; pairs with Java Edition = Java 版. Bare 基岩版 (no Minecraft prefix) once the context is clearly Minecraft, mirroring Java 版. |
+| **Skins tab / New skin / Browse / Save & use** <br><sub>Java Launcher skin-upload UI labels — usage guide</sub> | 皮肤 / 新皮肤 / 浏览 / 保存并使用 | Official zh-CN Launcher labels; 皮肤标签页 for "the Skins tab". |
+| **Classic / Slim (arm model)** <br><sub>The two Minecraft player models, 4px vs 3px arms — usage guide, template list</sub> | 经典 / 纤细 | Official zh-CN model names, already used for the templates (Steve（经典手臂）/ Alex（纤细手臂）). Chain with the locked **Slim mode** = 纤细模式 for MineSkin PRO's own setting; "arm style" = 手臂样式. |
+| **Upload a skin (to Minecraft)** <br><sub>Putting the exported PNG into the game — usage guide</sub> | 上传皮肤 | Reuses the locked **Upload** = 上传. Keep 上传 for the game side and 下载 / 导出 for getting the PNG out of MineSkin PRO — never 导入 here (导入 is the app's own import dialog, and the Bedrock UI's own **Import** button). |
+| **Save image (share-sheet / long-press menu item)** <br><sub>saveImage.instruction — the platform menu item the user must tap after long-pressing the exported image</sub> | 保存图片 / 存储图像 / 添加到照片 | Quote the OS labels verbatim in full-width quotes: 保存图片 is the Android WeChat / QQ in-app-browser item, 存储图像 and 添加到照片 are iOS Safari's. List all three (长按图片，然后选择“保存图片”、“存储图像”或“添加到照片”。) — the dialog is shown on both platforms. The verb is the neutral 选择, not the Apple-only 点按. |
+
 ### Animation
 
 | English | zh | Notes |
