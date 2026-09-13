@@ -1,7 +1,6 @@
-import type { Metadata, Viewport } from "next";
-import { Analytics } from "@vercel/analytics/next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import { baseUrl } from "@/i18n/config";
+import { Analytics } from "@vercel/analytics/next";
+import type { Metadata, Viewport } from "next";
 import "../styles/global.css";
 
 const SITE_TITLE = "Minecraft Skin Editor and Tester | Mineskin.pro";
@@ -96,7 +95,7 @@ export default function RootLayout({
       </head>
       <body>
         {children}
-        <SpeedInsights />
+        {/* <SpeedInsights /> */}
         <Analytics />
       </body>
     </html>
